@@ -22,34 +22,49 @@ import {
   MdPause,
   MdPlayArrow,
   MdCheck,
-  MdStop,
-  MdCamera
+  MdAdd,
+  MdDescription,
+  MdDone,
+  MdDoneAll,
+  MdAccessTime,
+  MdNotifications
 } from 'react-icons/md';
 
 const URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
-// Enhanced sound utility
 const playSound = (type) => {
   try {
     const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-    const frequencies = { send: 800, receive: 600, typing: 400, notification: 1000 };
+    const frequencies = { send: 800, receive: 600, typing: 400, notification: 1000, success: 800, error: 400 };
     const oscillator = audioContext.createOscillator();
     const gainNode = audioContext.createGain();
     oscillator.connect(gainNode);
     gainNode.connect(audioContext.destination);
     oscillator.frequency.setValueAtTime(frequencies[type] || 600, audioContext.currentTime);
-    oscillator.type = 'sine';
+    oscillator.type = type === 'notification' ? 'square' : 'sine';
     gainNode.gain.setValueAtTime(0, audioContext.currentTime);
-    gainNode.gain.linearRampToValueAtTime(0.1, audioContext.currentTime + 0.01);
-    gainNode.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.3);
+    gainNode.gain.linearRampToValueAtTime(0.2, audioContext.currentTime + 0.01);
+    gainNode.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.5);
     oscillator.start(audioContext.currentTime);
-    oscillator.stop(audioContext.currentTime + 0.3);
+    oscillator.stop(audioContext.currentTime + 0.5);
   } catch (err) {
     console.log('Sound not available');
   }
 };
 
-// Date formatter
+const showNotification = (title, body) => {
+  if ('Notification' in window && Notification.permission === 'granted') {
+    new Notification(title, { body, icon: '/favicon.ico', badge: '/favicon.ico' });
+  }
+  playSound('notification');
+};
+
+const requestNotificationPermission = () => {
+  if ('Notification' in window && Notification.permission === 'default') {
+    Notification.requestPermission();
+  }
+};
+
 const formatMessageDate = (date) => {
   const now = new Date();
   const messageDate = new Date(date);
@@ -68,6 +83,12 @@ const formatMessageDate = (date) => {
   });
 };
 
+const formatTime = (seconds) => {
+  const minutes = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  return `${minutes}:${secs.toString().padStart(2, '0')}`;
+};
+
 const Dashboard = () => {
   const [messages, setMessages] = useState([]);
   const [users, setUsers] = useState([]);
@@ -77,8 +98,6 @@ const Dashboard = () => {
   const [socket, setSocket] = useState(null);
   const [onlineUsers, setOnlineUsers] = useState(new Set());
   const [connectionStatus, setConnectionStatus] = useState('connecting');
-  
-  // Enhanced features
   const [activeMenu, setActiveMenu] = useState(null);
   const [replyingTo, setReplyingTo] = useState(null);
   const [editingMessage, setEditingMessage] = useState(null);
@@ -90,10 +109,15 @@ const Dashboard = () => {
   const [recordingTime, setRecordingTime] = useState(0);
   const [mediaRecorder, setMediaRecorder] = useState(null);
   const [playingVoice, setPlayingVoice] = useState(null);
+  const [currentAudio, setCurrentAudio] = useState(null);
+  const [audioCurrentTime, setAudioCurrentTime] = useState(0);
+  const [audioDuration, setAudioDuration] = useState(0);
   const [filePreview, setFilePreview] = useState(null);
   const [uploadLoading, setUploadLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState(null);
   const [unreadCounts, setUnreadCounts] = useState({});
+  const [showMediaMenu, setShowMediaMenu] = useState(false);
+  const [notifications, setNotifications] = useState([]);
 
   const user = JSON.parse(localStorage.getItem("user") || "null");
   const navigate = useNavigate();
@@ -102,23 +126,58 @@ const Dashboard = () => {
   const imageInputRef = useRef();
   const typingTimeoutRef = useRef();
   const recordingIntervalRef = useRef();
+  const messagesRefs = useRef({});
 
   if (!user) return <Navigate to="/login" replace />;
 
-  // Socket setup with proper message filtering
+  useEffect(() => { requestNotificationPermission(); }, []);
+
+  const addNotification = (message, type = 'info') => {
+    const id = Date.now();
+    const notification = { id, message, type };
+    setNotifications(prev => [...prev, notification]);
+    setTimeout(() => {
+      setNotifications(prev => prev.filter(n => n.id !== id));
+    }, 5000);
+  };
+
+  const scrollToMessage = (messageId) => {
+    const messageElement = messagesRefs.current[messageId];
+    if (messageElement) {
+      messageElement.scrollIntoView({ 
+        behavior: "smooth", 
+        block: "center" 
+      });
+      // Highlight the message briefly
+      messageElement.style.backgroundColor = 'rgba(0, 168, 132, 0.2)';
+      setTimeout(() => {
+        messageElement.style.backgroundColor = '';
+      }, 2000);
+    }
+  };
+
   useEffect(() => {
-    const socketInstance = io(URL, { transports: ['websocket', 'polling'] });
+    const socketInstance = io(URL, { 
+      transports: ['websocket', 'polling'],
+      reconnection: true,
+      reconnectionDelay: 1000,
+      reconnectionAttempts: 5
+    });
 
     socketInstance.on('connect', () => {
       setConnectionStatus('connected');
       socketInstance.emit('user-online', user.id);
+      addNotification('Connected to chat', 'success');
     });
 
-    socketInstance.on('disconnect', () => setConnectionStatus('disconnected'));
+    socketInstance.on('disconnect', () => {
+      setConnectionStatus('disconnected');
+      addNotification('Disconnected from chat', 'error');
+    });
+
     socketInstance.on('connect_error', () => setConnectionStatus('error'));
 
     socketInstance.on('new-message', (message) => {
-      // Only add message if it belongs to current chat
       const isForCurrentChat = 
         (selectedChat.type === 'general' && !message.recipient_id) ||
         (selectedChat.type === 'private' && selectedChat.data && 
@@ -126,62 +185,84 @@ const Dashboard = () => {
           (message.sender_id === selectedChat.data.id && message.recipient_id === user.id)));
 
       if (isForCurrentChat) {
-        setMessages(prev => prev.some(m => m.id === message.id) ? prev : [...prev, message]);
+        setMessages(prev => {
+          const exists = prev.some(m => m.id === message.id);
+          if (exists) return prev;
+          return [...prev, { ...message, status: 'delivered' }];
+        });
       }
       
-      // Sound and notification
       if (message.sender_id !== user.id) {
         playSound('receive');
-        
-        // Update unread counts
         if (!isForCurrentChat) {
+          showNotification(
+            `New message from ${message.sender_name}`,
+            message.message_type === 'text' ? 
+              (message.message.length > 50 ? message.message.slice(0, 50) + '...' : message.message) :
+              `${message.message_type} message`
+          );
           const chatKey = message.recipient_id ? `private-${message.sender_id}` : 'general';
           setUnreadCounts(prev => ({
             ...prev,
             [chatKey]: (prev[chatKey] || 0) + 1
           }));
         }
-        
-        if (document.hidden) {
-          new Notification(`New message from ${message.sender_name}`, {
-            body: message.message_type === 'text' ? message.message : `Sent a ${message.message_type}`,
-            icon: '/favicon.ico'
-          });
-        }
       }
     });
 
-    socketInstance.on('message-delivered', ({ tempId, messageId }) => {
+    socketInstance.on('message-delivered', ({ tempId, messageId, status }) => {
       setMessages(prev => prev.map(msg => 
         msg.id === tempId ? { ...msg, id: messageId, status: 'delivered' } : msg
       ));
+      setActionLoading(null);
     });
 
     socketInstance.on('message-deleted', ({ messageId }) => {
       setMessages(prev => prev.filter(msg => msg.id !== messageId));
+      setActionLoading(null);
+      addNotification('Message deleted', 'success');
+      playSound('success');
     });
 
-    socketInstance.on('message-edited', ({ messageId, newText }) => {
+    socketInstance.on('message-edited', (updatedMessage) => {
       setMessages(prev => prev.map(msg =>
-        msg.id === messageId ? { ...msg, message: newText, edited_at: new Date().toISOString() } : msg
+        msg.id === updatedMessage.id ? { 
+          ...msg, 
+          message: updatedMessage.message, 
+          edited_at: updatedMessage.edited_at 
+        } : msg
       ));
+      setEditingMessage(null);
+      setEditText('');
+      setActionLoading(null);
+      addNotification('Message updated', 'success');
+      playSound('success');
     });
 
-    socketInstance.on('user-typing', ({ userId, username, isTyping, chatType, recipientId }) => {
-      if (userId !== user.id) {
-        // Only show typing for current chat
-        const isForCurrentChat = 
-          (selectedChat.type === 'general' && chatType === 'general') ||
-          (selectedChat.type === 'private' && selectedChat.data && 
-           (recipientId === user.id || userId === selectedChat.data.id));
+    socketInstance.on('message-error', ({ error, messageId, tempId }) => {
+      console.error('Socket message error:', error);
+      addNotification(`Error: ${error}`, 'error');
+      playSound('error');
+      if (tempId) {
+        setMessages(prev => prev.filter(msg => msg.id !== tempId));
+      }
+      setActionLoading(null);
+    });
 
-        if (isForCurrentChat) {
-          setTypingUsers(prev => {
-            const newSet = new Set(prev);
-            isTyping ? newSet.add(username) : newSet.delete(username);
-            return newSet;
-          });
-        }
+    // FIXED: Display actual username in typing indicator
+    socketInstance.on('user-typing', ({ userId, typing, username }) => {
+      if (userId !== user.id) {
+        setTypingUsers(prev => {
+          const newSet = new Set(prev);
+          // Use actual username or fallback
+          const displayName = username || users.find(u => u.id === userId)?.username || `User ${userId}`;
+          if (typing) {
+            newSet.add(displayName);
+          } else {
+            newSet.delete(displayName);
+          }
+          return newSet;
+        });
       }
     });
 
@@ -193,15 +274,26 @@ const Dashboard = () => {
       });
     });
 
+    socketInstance.on('reaction-added', ({ messageId, reactions }) => {
+      setMessages(prev => prev.map(msg =>
+        msg.id === messageId ? { ...msg, reactions } : msg
+      ));
+    });
+
     setSocket(socketInstance);
-    return () => socketInstance.disconnect();
+    return () => {
+      socketInstance.disconnect();
+      if (currentAudio) {
+        currentAudio.pause();
+        setCurrentAudio(null);
+        setPlayingVoice(null);
+      }
+    };
   }, [user.id, selectedChat]);
 
-  // Fetch data
   useEffect(() => { fetchUsers(); }, []);
   useEffect(() => { 
     fetchMessages();
-    // Clear unread for current chat
     const chatKey = selectedChat.type === 'general' ? 'general' : `private-${selectedChat.data?.id}`;
     setUnreadCounts(prev => ({ ...prev, [chatKey]: 0 }));
   }, [selectedChat]);
@@ -213,6 +305,7 @@ const Dashboard = () => {
       setUsers(res.data.filter(u => u.id !== user.id));
     } catch (err) {
       console.error('Fetch users error:', err);
+      addNotification('Failed to load users', 'error');
     }
   };
 
@@ -230,6 +323,7 @@ const Dashboard = () => {
     } catch (err) {
       console.error('Fetch messages error:', err);
       setMessages([]);
+      addNotification('Failed to load messages', 'error');
     } finally {
       setLoading(false);
     }
@@ -262,9 +356,12 @@ const Dashboard = () => {
         message: msgInput,
         chatType: selectedChat.type,
         recipient_id: selectedChat.data?.id,
-        message_type: 'text',
-        reply_to: replyingTo?.id
+        replyTo: replyingTo?.id,
+        message_type: 'text'
       });
+    } else {
+      addNotification('Not connected to server', 'error');
+      setMessages(prev => prev.filter(msg => msg.id !== tempId));
     }
 
     setMsgInput("");
@@ -277,10 +374,9 @@ const Dashboard = () => {
     
     if (!isTyping && value.trim()) {
       setIsTyping(true);
-      socket?.emit('typing', { 
+      socket?.emit('typing-start', { 
         userId: user.id, 
-        username: user.username, 
-        isTyping: true,
+        username: user.username,
         chatType: selectedChat.type,
         recipientId: selectedChat.data?.id
       });
@@ -295,10 +391,9 @@ const Dashboard = () => {
   const handleStopTyping = () => {
     if (isTyping) {
       setIsTyping(false);
-      socket?.emit('typing', { 
-        userId: user.id, 
+      socket?.emit('typing-stop', { 
+        userId: user.id,
         username: user.username, 
-        isTyping: false,
         chatType: selectedChat.type,
         recipientId: selectedChat.data?.id
       });
@@ -326,37 +421,55 @@ const Dashboard = () => {
   };
 
   const handleEdit = async (messageId) => {
-    if (!editText.trim()) return;
+    if (!editText.trim()) {
+      addNotification('Message cannot be empty', 'error');
+      return;
+    }
     
     setActionLoading(`edit-${messageId}`);
-    try {
-      socket?.emit('edit-message', { messageId, newText: editText });
-      setEditingMessage(null);
-      setEditText('');
-    } finally {
-      setTimeout(() => setActionLoading(null), 500);
+    
+    if (socket && socket.connected) {
+      socket.emit('edit-message', { messageId, newMessage: editText });
+    } else {
+      addNotification('Not connected to server', 'error');
+      setActionLoading(null);
+    }
+  };
+
+  const handleEditKeyDown = (e, messageId) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleEdit(messageId);
     }
   };
 
   const handleDelete = async (messageId) => {
     setActionLoading(`delete-${messageId}`);
-    try {
-      socket?.emit('delete-message', { messageId });
-      setShowDeleteModal(null);
-    } finally {
-      setTimeout(() => setActionLoading(null), 1000);
+    
+    if (socket && socket.connected) {
+      socket.emit('delete-message', { messageId });
+    } else {
+      addNotification('Not connected to server', 'error');
+      setActionLoading(null);
     }
+    
+    setShowDeleteModal(null);
   };
 
   const handleReaction = (messageId, emoji) => {
-    socket?.emit('add-reaction', { messageId, emoji, userId: user.id });
+    if (socket && socket.connected) {
+      socket.emit('add-reaction', { messageId, emoji, userId: user.id });
+    }
   };
 
-  // Enhanced file upload with preview
   const handleFileUpload = async (file, type) => {
     if (!file) return;
 
-    // Show preview for images
+    if (file.size > 10 * 1024 * 1024) {
+      addNotification('File too large (max 10MB)', 'error');
+      return;
+    }
+
     if (type === 'image') {
       const reader = new FileReader();
       reader.onload = (e) => {
@@ -364,14 +477,14 @@ const Dashboard = () => {
           type: 'image',
           file,
           preview: e.target.result,
-          name: file.name
+          name: file.name,
+          size: (file.size / 1024).toFixed(1) + ' KB'
         });
       };
       reader.readAsDataURL(file);
       return;
     }
 
-    // For non-images, show file info
     setFilePreview({
       type: 'file',
       file,
@@ -384,6 +497,23 @@ const Dashboard = () => {
     if (!filePreview) return;
 
     setUploadLoading(true);
+    
+    const tempId = `temp-${Date.now()}`;
+    const tempMessage = {
+      id: tempId,
+      message: filePreview.name,
+      sender_id: user.id,
+      sender_name: user.username,
+      created_at: new Date().toISOString(),
+      message_type: filePreview.type,
+      status: 'sending',
+      recipient_id: selectedChat.type === 'private' ? selectedChat.data?.id : null,
+      media_url: filePreview.type === 'image' ? filePreview.preview : null
+    };
+    
+    setMessages(prev => [...prev, tempMessage]);
+    setFilePreview(null);
+    
     try {
       const formData = new FormData();
       formData.append('file', filePreview.file);
@@ -401,10 +531,19 @@ const Dashboard = () => {
 
       if (response.data.success) {
         playSound('send');
-        setFilePreview(null);
+        setMessages(prev => prev.map(msg =>
+          msg.id === tempId ? {
+            ...msg,
+            id: response.data.message.id,
+            media_url: response.data.message.media_url,
+            status: 'delivered'
+          } : msg
+        ));
+        addNotification(`${filePreview.type === 'image' ? 'Image' : 'File'} sent successfully`, 'success');
       }
     } catch (err) {
-      alert('Upload failed: ' + (err.response?.data?.error || err.message));
+      setMessages(prev => prev.filter(msg => msg.id !== tempId));
+      addNotification('Upload failed: ' + (err.response?.data?.error || err.message), 'error');
     } finally {
       setUploadLoading(false);
     }
@@ -412,7 +551,9 @@ const Dashboard = () => {
 
   const startVoiceRecording = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        audio: { echoCancellation: true, noiseSuppression: true } 
+      });
       const recorder = new MediaRecorder(stream);
       
       setMediaRecorder(recorder);
@@ -424,14 +565,30 @@ const Dashboard = () => {
       }, 1000);
 
       const chunks = [];
-      recorder.ondataavailable = (e) => chunks.push(e.data);
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) chunks.push(e.data);
+      };
       
       recorder.onstop = async () => {
-        const blob = new Blob(chunks, { type: 'audio/webm' });
+        const blob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' });
         
-        // Send voice message
+        const tempId = `temp-${Date.now()}`;
+        const tempMessage = {
+          id: tempId,
+          message: `Voice note (${recordingTime}s)`,
+          sender_id: user.id,
+          sender_name: user.username,
+          created_at: new Date().toISOString(),
+          message_type: 'voice',
+          voice_duration: recordingTime,
+          status: 'sending',
+          recipient_id: selectedChat.type === 'private' ? selectedChat.data?.id : null
+        };
+        
+        setMessages(prev => [...prev, tempMessage]);
+        
         const formData = new FormData();
-        formData.append('file', blob, 'voice-note.webm');
+        formData.append('file', blob, `voice-${Date.now()}.webm`);
         formData.append('sender_id', user.id);
         formData.append('chatType', selectedChat.type);
         formData.append('message_type', 'voice');
@@ -442,27 +599,36 @@ const Dashboard = () => {
         }
 
         try {
-          const response = await axios.post(`${URL}/api/upload`, formData, {
-            headers: { 'Content-Type': 'multipart/form-data' }
-          });
+          const response = await axios.post(`${URL}/api/upload`, formData);
           
           if (response.data.success) {
             playSound('send');
+            setMessages(prev => prev.map(msg =>
+              msg.id === tempId ? {
+                ...msg,
+                id: response.data.message.id,
+                media_url: response.data.message.media_url,
+                status: 'delivered'
+              } : msg
+            ));
+            addNotification('Voice message sent', 'success');
           }
         } catch (err) {
-          console.error('Voice upload failed:', err);
+          setMessages(prev => prev.filter(msg => msg.id !== tempId));
+          addNotification('Voice upload failed', 'error');
         }
       };
 
       recorder.start();
       playSound('notification');
+      addNotification('Recording voice message...', 'info');
     } catch (err) {
-      alert('Could not access microphone');
+      addNotification('Could not access microphone', 'error');
     }
   };
 
   const stopVoiceRecording = () => {
-    if (mediaRecorder) {
+    if (mediaRecorder && mediaRecorder.state === 'recording') {
       mediaRecorder.stop();
       mediaRecorder.stream.getTracks().forEach(track => track.stop());
       clearInterval(recordingIntervalRef.current);
@@ -480,16 +646,68 @@ const Dashboard = () => {
       setIsRecording(false);
       setMediaRecorder(null);
       setRecordingTime(0);
+      addNotification('Voice recording cancelled', 'info');
     }
   };
 
-  const toggleVoicePlayback = (messageId) => {
-    if (playingVoice === messageId) {
-      setPlayingVoice(null);
-    } else {
-      setPlayingVoice(messageId);
-      setTimeout(() => setPlayingVoice(null), 3000);
+  // ENHANCED: Voice playback with proper pause/resume and time tracking
+  const toggleVoicePlayback = (message) => {
+    if (!message.media_url) return;
+    
+    // If this voice is already playing, pause it
+    if (playingVoice === message.id && currentAudio) {
+      if (!currentAudio.paused) {
+        currentAudio.pause();
+        return;
+      } else {
+        // Resume from current position
+        currentAudio.play();
+        return;
+      }
     }
+    
+    // Stop any current audio
+    if (currentAudio) {
+      currentAudio.pause();
+      currentAudio.currentTime = 0;
+      setCurrentAudio(null);
+      setPlayingVoice(null);
+      setAudioCurrentTime(0);
+    }
+    
+    // Start new audio
+    const audio = new Audio(`${URL}${message.media_url}`);
+    setCurrentAudio(audio);
+    setPlayingVoice(message.id);
+    
+    audio.addEventListener('timeupdate', () => {
+      setAudioCurrentTime(Math.floor(audio.currentTime));
+    });
+    
+    audio.addEventListener('loadedmetadata', () => {
+      setAudioDuration(Math.floor(audio.duration));
+    });
+    
+    audio.onended = () => {
+      setPlayingVoice(null);
+      setCurrentAudio(null);
+      setAudioCurrentTime(0);
+    };
+    
+    audio.onerror = () => {
+      console.error('Audio playback failed');
+      setPlayingVoice(null);
+      setCurrentAudio(null);
+      setAudioCurrentTime(0);
+      addNotification('Audio playback failed', 'error');
+    };
+    
+    audio.play().catch(err => {
+      console.error('Audio play failed:', err);
+      setPlayingVoice(null);
+      setCurrentAudio(null);
+      addNotification('Cannot play audio', 'error');
+    });
   };
 
   const toggleTheme = () => {
@@ -503,6 +721,10 @@ const Dashboard = () => {
 
   const handleLogout = () => {
     if (socket) socket.disconnect();
+    if (currentAudio) {
+      currentAudio.pause();
+      setCurrentAudio(null);
+    }
     localStorage.removeItem("user");
     localStorage.removeItem("token");
     navigate("/login");
@@ -519,7 +741,36 @@ const Dashboard = () => {
     }
   };
 
-  // Group messages by date
+  // ENHANCED: Message status with proper WhatsApp-like hierarchy
+  const renderMessageStatus = (message) => {
+    if (message.sender_id !== user.id) return null;
+    
+    const isLoading = actionLoading === `delete-${message.id}`;
+    
+    if (isLoading) {
+      return <div className="loading-spinner-small"></div>;
+    }
+    
+    switch (message.status) {
+      case 'sending':
+        return <MdAccessTime className="status-sending" />;
+      case 'sent':
+        return <MdCheck className="status-sent" />;
+      case 'delivered':
+        return <MdDone className="status-delivered" />;
+      case 'seen':
+        return <MdDoneAll className="status-seen" />;
+      default:
+        return <MdDone className="status-delivered" />;
+    }
+  };
+
+  // FIXED: Determine if name and message should be inline
+  const shouldInlineMessage = (messageText, messageType) => {
+    if (messageType !== 'text') return false;
+    return messageText.length <= 30; // Adjust threshold as needed
+  };
+
   const groupedMessages = messages.reduce((groups, message) => {
     const date = formatMessageDate(message.created_at);
     if (!groups[date]) {
@@ -531,16 +782,37 @@ const Dashboard = () => {
 
   return (
     <div className="app">
-      {/* Connection Status */}
       {connectionStatus !== 'connected' && (
         <div className={`connection-status ${connectionStatus}`}>
-          {connectionStatus === 'connecting' && '🔄 Connecting...'}
-          {connectionStatus === 'disconnected' && '⚠️ Disconnected'}
-          {connectionStatus === 'error' && '❌ Connection Error'}
+          {connectionStatus === 'connecting' && 'Connecting...'}
+          {connectionStatus === 'disconnected' && 'Reconnecting...'}
+          {connectionStatus === 'error' && 'Connection failed'}
         </div>
       )}
 
-      {/* Loading */}
+      {notifications.length > 0 && (
+        <div className="notification-container">
+          {notifications.map(notification => (
+            <div key={notification.id} className={`notification ${notification.type}`}>
+              <div className="notification-content">
+                <div className="notification-icon">
+                  {notification.type === 'success' && <MdCheck />}
+                  {notification.type === 'error' && <MdClose />}
+                  {notification.type === 'info' && <MdNotifications />}
+                </div>
+                <div className="notification-text">{notification.message}</div>
+                <button 
+                  onClick={() => setNotifications(prev => prev.filter(n => n.id !== notification.id))}
+                  className="notification-close"
+                >
+                  <MdClose />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
       {loading && (
         <div className="loading-overlay">
           <div className="loading-spinner"></div>
@@ -548,7 +820,6 @@ const Dashboard = () => {
         </div>
       )}
 
-      {/* File Preview Modal */}
       {filePreview && (
         <div className="modal-overlay" onClick={() => setFilePreview(null)}>
           <div className="file-preview-modal" onClick={e => e.stopPropagation()}>
@@ -568,7 +839,7 @@ const Dashboard = () => {
                 />
               ) : (
                 <div className="preview-file">
-                  <MdAttachFile className="file-icon-large" />
+                  <MdDescription className="file-icon-large" />
                   <div className="file-details">
                     <div className="file-name">{filePreview.name}</div>
                     <div className="file-size">{filePreview.size}</div>
@@ -578,27 +849,21 @@ const Dashboard = () => {
             </div>
             
             <div className="preview-actions">
-              <button 
-                onClick={() => setFilePreview(null)} 
-                className="btn-cancel"
-                disabled={uploadLoading}
-              >
+              <button onClick={() => setFilePreview(null)} className="btn-cancel">
                 Cancel
               </button>
               <button 
                 onClick={sendFileMessage} 
-                className="btn-send"
+                className="btn-send" 
                 disabled={uploadLoading}
               >
                 {uploadLoading ? (
-                  <>
+                  <div className="action-loading">
                     <div className="loading-spinner-small"></div>
                     Sending...
-                  </>
+                  </div>
                 ) : (
-                  <>
-                    <MdSend /> Send
-                  </>
+                  'Send'
                 )}
               </button>
             </div>
@@ -606,7 +871,6 @@ const Dashboard = () => {
         </div>
       )}
 
-      {/* Delete Confirmation Modal */}
       {showDeleteModal && (
         <div className="modal-overlay" onClick={() => setShowDeleteModal(null)}>
           <div className="modal-content" onClick={e => e.stopPropagation()}>
@@ -614,26 +878,24 @@ const Dashboard = () => {
             <p>Are you sure you want to delete this message? This action cannot be undone.</p>
             <div className="modal-actions">
               <button 
-                className="btn-cancel" 
-                onClick={() => setShowDeleteModal(null)}
+                onClick={() => setShowDeleteModal(null)} 
+                className="btn-cancel"
                 disabled={actionLoading}
               >
                 Cancel
               </button>
               <button 
-                className="btn-delete" 
-                onClick={() => handleDelete(showDeleteModal.id)}
+                onClick={() => handleDelete(showDeleteModal.id)} 
+                className="btn-delete"
                 disabled={actionLoading}
               >
                 {actionLoading === `delete-${showDeleteModal.id}` ? (
-                  <>
+                  <div className="action-loading">
                     <div className="loading-spinner-small"></div>
                     Deleting...
-                  </>
+                  </div>
                 ) : (
-                  <>
-                    <MdOutlineDelete /> Delete
-                  </>
+                  'Delete'
                 )}
               </button>
             </div>
@@ -641,31 +903,28 @@ const Dashboard = () => {
         </div>
       )}
 
-      {/* Top Bar */}
       <div className="topbar">
         <div className="brand">
           <button className="menu-btn" onClick={toggleSidebar}>
             <MdMenu />
           </button>
-          <div className="logo">💬 ChatApp</div>
+          <div className="logo">ChatApp</div>
           <span className="username">@{user.username}</span>
         </div>
         <div className="actions">
-          <button className="icon-btn" onClick={toggleTheme} title="Toggle theme">
+          <button className="icon-btn" onClick={toggleTheme}>
             <MdOutlineModeNight className="dark-icon" />
             <MdOutlineWbSunny className="light-icon" />
           </button>
-          <button className="icon-btn logout-btn" onClick={handleLogout} title="Logout">
+          <button className="icon-btn logout-btn" onClick={handleLogout}>
             Logout
           </button>
         </div>
       </div>
 
       <div className="main">
-        {/* Enhanced Sidebar with Proper Badge Counts */}
         <aside className="sidebar">
           <div className="chats">
-            {/* General Chat */}
             <div 
               className={`chat-item ${selectedChat.type === 'general' ? 'active' : ''}`}
               onClick={() => {
@@ -673,75 +932,60 @@ const Dashboard = () => {
                 if (window.innerWidth <= 768) toggleSidebar();
               }}
             >
-              <div className="avatar gradient-avatar">
-                🌍
-              </div>
+              <div className="avatar blue-lime-gradient">🌍</div>
               <div className="chat-info">
                 <div className="name">
                   General Chat
                   <span className="chat-badge general">Public</span>
                 </div>
-                <div className="preview">Everyone can see these messages</div>
+                <div className="preview">Everyone can see messages</div>
               </div>
               {unreadCounts.general > 0 && (
                 <div className="unread-badge">{unreadCounts.general}</div>
               )}
             </div>
 
-            {/* Private Chats */}
-            {users.length > 0 ? (
-              users.map(u => {
-                const unreadKey = `private-${u.id}`;
-                const unreadCount = unreadCounts[unreadKey] || 0;
-                
-                return (
-                  <div 
-                    key={u.id} 
-                    className={`chat-item ${selectedChat.type === 'private' && selectedChat.data?.id === u.id ? 'active' : ''}`}
-                    onClick={() => {
-                      setSelectedChat({ type: "private", data: u });
-                      if (window.innerWidth <= 768) toggleSidebar();
-                    }}
-                  >
-                    <div className="avatar gradient-avatar">
-                      {getInitials(u.username)}
-                    </div>
-                    <div className="chat-info">
-                      <div className="name">
-                        {u.username}
-                        {onlineUsers.has(u.id) && <span className="online-dot"></span>}
-                        <span className="chat-badge private">Private</span>
-                      </div>
-                      <div className="preview">
-                        {onlineUsers.has(u.id) ? 'Online now' : 'Tap to start chatting'}
-                      </div>
-                    </div>
-                    {unreadCount > 0 && (
-                      <div className="unread-badge">{unreadCount}</div>
-                    )}
+            {users.map(u => {
+              const unreadKey = `private-${u.id}`;
+              const unreadCount = unreadCounts[unreadKey] || 0;
+              
+              return (
+                <div 
+                  key={u.id} 
+                  className={`chat-item ${selectedChat.type === 'private' && selectedChat.data?.id === u.id ? 'active' : ''}`}
+                  onClick={() => {
+                    setSelectedChat({ type: "private", data: u });
+                    if (window.innerWidth <= 768) toggleSidebar();
+                  }}
+                >
+                  <div className="avatar blue-lime-gradient">
+                    {getInitials(u.username)}
                   </div>
-                );
-              })
-            ) : (
-              <div className="chat-item empty-state">
-                <div className="avatar">👥</div>
-                <div className="chat-info">
-                  <div className="name">No contacts yet</div>
-                  <div className="preview">Invite friends to join!</div>
+                  <div className="chat-info">
+                    <div className="name">
+                      {u.username}
+                      {onlineUsers.has(u.id) && <span className="online-dot"></span>}
+                      <span className="chat-badge private">Private</span>
+                    </div>
+                    <div className="preview">
+                      {onlineUsers.has(u.id) ? 'Online now' : 'Tap to chat'}
+                    </div>
+                  </div>
+                  {unreadCount > 0 && (
+                    <div className="unread-badge">{unreadCount}</div>
+                  )}
                 </div>
-              </div>
-            )}
+              );
+            })}
           </div>
         </aside>
 
-        {/* Enhanced Chat Area */}
         <section className="chat">
-          {/* Chat Header with Enhanced Typing Indicator */}
           <div className="chat-header">
             <button className="go-back-btn" onClick={toggleSidebar}>
               <MdArrowBackIos />
             </button>
-            <div className="avatar gradient-avatar">
+            <div className="avatar blue-lime-gradient">
               {selectedChat.type === 'general' ? '🌍' : getInitials(selectedChat.data?.username)}
             </div>
             <div className="chat-title">
@@ -755,7 +999,14 @@ const Dashboard = () => {
               </div>
               {typingUsers.size > 0 && (
                 <div className="typing-indicator">
-                  <span>{Array.from(typingUsers).join(', ')} {typingUsers.size === 1 ? 'is' : 'are'} typing</span>
+                  <span>
+                    {typingUsers.size === 1 
+                      ? `${Array.from(typingUsers)[0]} is typing` 
+                      : typingUsers.size === 2 
+                        ? `${Array.from(typingUsers).join(' and ')} are typing`
+                        : `${typingUsers.size} people are typing`
+                    }
+                  </span>
                   <div className="typing-dots">
                     <span></span>
                     <span></span>
@@ -766,13 +1017,12 @@ const Dashboard = () => {
             </div>
           </div>
 
-          {/* Enhanced Messages with Adaptive Bubbles */}
           <div className="messages">
             {Object.keys(groupedMessages).length === 0 ? (
               <div className="empty-chat-state">
                 <div className="empty-icon">💬</div>
                 <h3>Start the conversation</h3>
-                <p>Send a message to begin chatting{selectedChat.type === 'private' ? ` with ${selectedChat.data?.username}` : ' in the general chat'}!</p>
+                <p>Send a message to begin!</p>
               </div>
             ) : (
               Object.entries(groupedMessages).map(([date, dateMessages]) => (
@@ -784,208 +1034,222 @@ const Dashboard = () => {
                   {dateMessages.map(m => {
                     const isOwn = m.sender_id === user.id;
                     const replyMessage = m.reply_to ? messages.find(msg => msg.id === m.reply_to) : null;
-                    const isShortMessage = m.message && m.message.length < 50;
+                    const isInline = shouldInlineMessage(m.message, m.message_type);
                     
                     return (
-                      <div key={m.id} className={`message-bubble ${isOwn ? 'own' : ''} ${isShortMessage ? 'short' : 'long'}`}>
-                        <div className="message-content">
-                          {/* Reply Preview with Glassmorphism */}
-                          {replyMessage && (
-                            <div className="reply-preview-glass">
-                              <div className="reply-author">
-                                {replyMessage.sender_id === user.id ? 'You' : replyMessage.sender_name}
-                              </div>
-                              <div className="reply-text">
-                                {replyMessage.message_type === 'text' 
-                                  ? (replyMessage.message.length > 30 ? replyMessage.message.slice(0, 30) + '...' : replyMessage.message)
-                                  : `📎 ${replyMessage.message_type} message`
-                                }
-                              </div>
-                            </div>
-                          )}
-
+                      <div 
+                        key={m.id} 
+                        className={`message-wrapper ${isOwn ? 'own' : ''}`}
+                        ref={el => messagesRefs.current[m.id] = el}
+                      >
+                        <div className="message-bubble">
                           {editingMessage === m.id ? (
-                            /* Edit Mode */
                             <div className="edit-container">
                               <textarea
                                 value={editText}
                                 onChange={(e) => setEditText(e.target.value)}
-                                onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleEdit(m.id)}
+                                onKeyDown={(e) => handleEditKeyDown(e, m.id)}
                                 className="edit-input"
+                                placeholder="Edit your message..."
                                 autoFocus
-                                rows="2"
                               />
                               <div className="edit-actions">
-                                <button 
-                                  onClick={() => handleEdit(m.id)} 
-                                  className="btn-send"
-                                  disabled={!editText.trim() || actionLoading === `edit-${m.id}`}
-                                >
-                                  {actionLoading === `edit-${m.id}` ? (
-                                    <>
-                                      <div className="loading-spinner-small"></div>
-                                      Saving...
-                                    </>
-                                  ) : (
-                                    <>
-                                      <MdCheck /> Save
-                                    </>
-                                  )}
-                                </button>
                                 <button 
                                   onClick={() => {
                                     setEditingMessage(null);
                                     setEditText('');
-                                  }} 
+                                  }}
                                   className="btn-cancel"
                                   disabled={actionLoading === `edit-${m.id}`}
                                 >
-                                  <MdClose /> Cancel
+                                  Cancel
+                                </button>
+                                <button 
+                                  onClick={() => handleEdit(m.id)} 
+                                  className="btn-save"
+                                  disabled={!editText.trim() || actionLoading === `edit-${m.id}`}
+                                >
+                                  {actionLoading === `edit-${m.id}` ? (
+                                    <div className="action-loading">
+                                      <div className="loading-spinner-small"></div>
+                                      Saving...
+                                    </div>
+                                  ) : (
+                                    'Save'
+                                  )}
                                 </button>
                               </div>
                             </div>
                           ) : (
-                            /* Normal Message Display */
                             <>
-                              <div className="message-header">
-                                <span className="sender-name">
-                                  {isOwn ? 'You' : m.sender_name}
-                                </span>
-                                
-                                {/* Message Content by Type */}
-                                {m.message_type === 'voice' ? (
-                                  <div className="voice-player">
-                                    <button 
-                                      className="play-btn"
-                                      onClick={() => toggleVoicePlayback(m.id)}
-                                      disabled={!m.media_url}
-                                    >
-                                      {playingVoice === m.id ? <MdPause /> : <MdPlayArrow />}
-                                    </button>
-                                    <div className="voice-waveform">
-                                      <div className={`wave-animation ${playingVoice === m.id ? 'playing' : ''}`}>
-                                        <div className="wave-bar"></div>
-                                        <div className="wave-bar"></div>
-                                        <div className="wave-bar"></div>
-                                        <div className="wave-bar"></div>
-                                        <div className="wave-bar"></div>
-                                      </div>
-                                    </div>
-                                    <span className="voice-time">{m.voice_duration || 0}s</span>
+                              <div className="message-content">
+                                {/* FIXED: Clickable reply preview that scrolls to original message */}
+                                {replyMessage && (
+                                  <div 
+                                    className="reply-preview"
+                                    onClick={() => scrollToMessage(replyMessage.id)}
+                                  >
+                                    <span className="reply-author">
+                                      {replyMessage.sender_id === user.id ? 'You' : replyMessage.sender_name}
+                                    </span>
+                                    <span className="reply-text">
+                                      {replyMessage.message_type === 'text' 
+                                        ? (replyMessage.message.length > 50 ? replyMessage.message.slice(0, 50) + '...' : replyMessage.message)
+                                        : `${replyMessage.message_type} message`
+                                      }
+                                    </span>
                                   </div>
-                                ) : m.message_type === 'image' ? (
-                                  <div className="media-content">
-                                    <div className="image-container">
-                                      <img 
-                                        src={`${URL}${m.media_url}`}
-                                        alt="Shared image"
-                                        className="message-image"
-                                        onClick={() => window.open(`${URL}${m.media_url}`, '_blank')}
-                                        onLoad={(e) => {
-                                          // Auto-resize based on aspect ratio
-                                          const img = e.target;
-                                          const aspectRatio = img.naturalWidth / img.naturalHeight;
-                                          if (aspectRatio > 1.5) {
-                                            img.style.width = '280px';
-                                            img.style.height = 'auto';
-                                          } else {
-                                            img.style.maxHeight = '200px';
-                                            img.style.width = 'auto';
-                                          }
-                                        }}
-                                      />
-                                      <div className="image-overlay">
-                                        <MdCamera className="image-icon" />
+                                )}
+
+                                {/* FIXED: Inline name and message for short texts, separate lines for long texts */}
+                                <div className={`message-header ${isInline ? 'inline' : 'multiline'}`}>
+                                  <span className="sender-name">{isOwn ? 'You' : m.sender_name}{isInline ? ':' : ''}</span>
+                                  
+                                  {m.message_type === 'voice' ? (
+                                    <div className="voice-player">
+                                      <button 
+                                        className="play-btn"
+                                        onClick={() => toggleVoicePlayback(m)}
+                                        disabled={!m.media_url}
+                                      >
+                                        {playingVoice === m.id && currentAudio && !currentAudio.paused ? <MdPause /> : <MdPlayArrow />}
+                                      </button>
+                                      <div className="voice-waveform">
+                                        <div className={`wave-animation ${playingVoice === m.id && currentAudio && !currentAudio.paused ? 'playing' : ''}`}>
+                                          {[...Array(8)].map((_, i) => (
+                                            <div 
+                                              key={i} 
+                                              className="wave-bar"
+                                              style={{ 
+                                                animationDelay: `${i * 0.1}s`,
+                                                height: playingVoice === m.id && currentAudio && !currentAudio.paused ? `${8 + Math.random() * 10}px` : '8px'
+                                              }}
+                                            ></div>
+                                          ))}
+                                        </div>
                                       </div>
+                                      {/* FIXED: Show actual duration and current time */}
+                                      <span className="voice-time">
+                                        {playingVoice === m.id ? 
+                                          `${formatTime(audioCurrentTime)}/${formatTime(m.voice_duration || audioDuration)}` :
+                                          formatTime(m.voice_duration || 0)
+                                        }
+                                      </span>
                                     </div>
-                                    {m.message && m.message !== 'Image' && (
-                                      <div className="image-caption">{m.message}</div>
+                                  ) : m.message_type === 'image' ? (
+                                    <>
+                                      {!isInline && <br />}
+                                      <div className="image-message">
+                                        <img 
+                                          src={`${URL}${m.media_url}`}
+                                          alt="Shared"
+                                          className="message-image"
+                                          onClick={() => window.open(`${URL}${m.media_url}`, '_blank')}
+                                        />
+                                      </div>
+                                    </>
+                                  ) : m.message_type === 'file' ? (
+                                    <>
+                                      {!isInline && <br />}
+                                      <div className="file-message">
+                                        <MdAttachFile className="file-icon" />
+                                        <div className="file-info">
+                                          <span className="file-name">{m.message}</span>
+                                          <span className="file-size">Click to download</span>
+                                        </div>
+                                        <a 
+                                          href={`${URL}${m.media_url}`}
+                                          download
+                                          className="download-btn"
+                                        >
+                                          <MdDownload />
+                                        </a>
+                                      </div>
+                                    </>
+                                  ) : (
+                                    <span className="message-text">{m.message}</span>
+                                  )}
+                                </div>
+
+                                <div className="message-footer">
+                                  <div className="message-time-info">
+                                    <span className="message-time">
+                                      {new Date(m.created_at).toLocaleTimeString('en-US', {
+                                        hour: 'numeric',
+                                        minute: '2-digit'
+                                      })}
+                                    </span>
+                                    {m.edited_at && (
+                                      <span className="edited-indicator">edited</span>
                                     )}
                                   </div>
-                                ) : m.message_type === 'file' ? (
-                                  <div className="file-content">
-                                    <MdAttachFile className="file-icon" />
-                                    <div className="file-info">
-                                      <span className="file-name">{m.message}</span>
-                                      <span className="file-size">Click to download</span>
-                                    </div>
-                                    <a 
-                                      href={`${URL}${m.media_url}`}
-                                      download
-                                      className="download-btn"
-                                      title="Download file"
-                                    >
-                                      <MdDownload />
-                                    </a>
-                                  </div>
-                                ) : (
-                                  <div className="message-text">{m.message}</div>
-                                )}
-                              </div>
-
-                              <div className="message-footer">
-                                <span className="message-time">
-                                  {new Date(m.created_at).toLocaleTimeString('en-US', {
-                                    hour: 'numeric',
-                                    minute: '2-digit'
-                                  })}
-                                  {m.edited_at && <span className="edited-indicator"> (edited)</span>}
-                                </span>
-                                
-                                {/* Message Status */}
-                                {isOwn && (
-                                  <div className="message-status">
-                                    {m.status === 'sending' && <span className="status-sending">⏳</span>}
-                                    {m.status === 'delivered' && <MdCheckCircle className="status-delivered" />}
-                                    {!m.status && <MdCheckCircle className="status-delivered" />}
-                                  </div>
-                                )}
-
-                                {/* Enhanced Message Menu */}
-                                <div className="message-menu-container">
-                                  <button 
-                                    className="message-menu-btn" 
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setActiveMenu(activeMenu === m.id ? null : m.id);
-                                    }}
-                                  >
-                                    <MdMoreVert />
-                                  </button>
                                   
-                                  {activeMenu === m.id && (
-                                    <div className="message-menu" onClick={(e) => e.stopPropagation()}>
-                                      <button onClick={() => handleMenuAction('reply', m)}>
-                                        <MdOutlineReply /> Reply
+                                  <div className="message-actions">
+                                    {isOwn && (
+                                      <div className="message-status">
+                                        {renderMessageStatus(m)}
+                                      </div>
+                                    )}
+
+                                    <div className="message-menu-container">
+                                      <button 
+                                        className="message-menu-btn" 
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setActiveMenu(activeMenu === m.id ? null : m.id);
+                                        }}
+                                      >
+                                        <MdMoreVert />
                                       </button>
-                                      <button onClick={() => handleMenuAction('react', m)}>
-                                        <MdFavorite /> React
-                                      </button>
-                                      {isOwn && m.message_type === 'text' && (
-                                        <button onClick={() => handleMenuAction('edit', m)}>
-                                          <MdOutlineEdit /> Edit
-                                        </button>
-                                      )}
-                                      {(isOwn || selectedChat.type === 'general') && (
-                                        <button 
-                                          onClick={() => handleMenuAction('delete', m)}
-                                          className="delete-option"
-                                        >
-                                          <MdOutlineDelete /> Delete
-                                        </button>
+                                      
+                                      {activeMenu === m.id && (
+                                        <div className="message-menu">
+                                          <button onClick={() => handleMenuAction('reply', m)}>
+                                            <MdOutlineReply /> Reply
+                                          </button>
+                                          <button onClick={() => handleMenuAction('react', m)}>
+                                            <MdFavorite /> React
+                                          </button>
+                                          {isOwn && m.message_type === 'text' && (
+                                            <button onClick={() => handleMenuAction('edit', m)}>
+                                              <MdOutlineEdit /> Edit
+                                            </button>
+                                          )}
+                                          {(isOwn || selectedChat.type === 'general') && (
+                                            <button onClick={() => handleMenuAction('delete', m)}>
+                                              <MdOutlineDelete /> Delete
+                                            </button>
+                                          )}
+                                        </div>
                                       )}
                                     </div>
-                                  )}
+                                  </div>
                                 </div>
                               </div>
 
-                              {/* Reactions */}
                               {m.reactions && Array.isArray(m.reactions) && m.reactions.length > 0 && (
                                 <div className="message-reactions">
-                                  {m.reactions.map((reaction, idx) => (
-                                    <span key={idx} className="reaction" onClick={() => handleReaction(m.id, reaction.emoji)}>
+                                  {m.reactions.reduce((acc, reaction) => {
+                                    const existing = acc.find(r => r.emoji === reaction.emoji);
+                                    if (existing) {
+                                      existing.count++;
+                                      if (reaction.user_id === user.id) existing.byMe = true;
+                                    } else {
+                                      acc.push({
+                                        emoji: reaction.emoji,
+                                        count: 1,
+                                        byMe: reaction.user_id === user.id
+                                      });
+                                    }
+                                    return acc;
+                                  }, []).map((reaction, idx) => (
+                                    <button
+                                      key={idx}
+                                      className={`reaction ${reaction.byMe ? 'by-me' : ''}`}
+                                      onClick={() => handleReaction(m.id, reaction.emoji)}
+                                    >
                                       {reaction.emoji} {reaction.count}
-                                    </span>
+                                    </button>
                                   ))}
                                 </div>
                               )}
@@ -1001,7 +1265,6 @@ const Dashboard = () => {
             <div ref={messagesEndRef} />
           </div>
 
-          {/* Reply Bar with Glassmorphism */}
           {replyingTo && (
             <div className="reply-bar">
               <div className="reply-info">
@@ -1012,68 +1275,107 @@ const Dashboard = () => {
                   </span>
                   <span className="reply-preview-text">
                     {replyingTo.message_type === 'text' 
-                      ? (replyingTo.message.length > 50 ? replyingTo.message.slice(0, 50) + '...' : replyingTo.message)
-                      : `📎 ${replyingTo.message_type} message`
+                      ? (replyingTo.message.length > 60 ? replyingTo.message.slice(0, 60) + '...' : replyingTo.message)
+                      : `${replyingTo.message_type} message`
                     }
                   </span>
                 </div>
               </div>
-              <button 
-                className="reply-cancel-btn"
-                onClick={() => setReplyingTo(null)}
-              >
+              <button onClick={() => setReplyingTo(null)} className="reply-cancel-btn">
                 <MdClose />
               </button>
             </div>
           )}
 
-          {/* Enhanced Composer with All Features */}
           <form className="composer" onSubmit={handleSendMessage}>
             <div className="composer-actions">
-              {/* File Upload */}
-              <button 
-                type="button" 
-                className="composer-btn" 
-                onClick={() => fileInputRef.current?.click()}
-                title="Attach file"
-                disabled={isRecording || uploadLoading}
-              >
-                <MdAttachFile />
-              </button>
-              
-              {/* Image Upload */}
-              <button 
-                type="button" 
-                className="composer-btn" 
-                onClick={() => imageInputRef.current?.click()}
-                title="Send image"
-                disabled={isRecording || uploadLoading}
-              >
-                <MdImage />
-              </button>
-              
-              {/* Voice Recording */}
               {!isRecording ? (
-                <button 
-                  type="button" 
-                  className="composer-btn voice-btn" 
-                  onClick={startVoiceRecording}
-                  title="Record voice message"
-                  disabled={uploadLoading}
-                >
-                  <MdMic />
-                </button>
+                window.innerWidth <= 768 ? (
+                  <div className="mobile-media-menu">
+                    <button 
+                      type="button" 
+                      className={`mobile-toggle-btn ${showMediaMenu ? 'active' : ''}`}
+                      onClick={() => setShowMediaMenu(!showMediaMenu)}
+                      disabled={uploadLoading}
+                    >
+                      <MdAdd />
+                    </button>
+                    
+                    {showMediaMenu && (
+                      <div className="media-options">
+                        <button 
+                          type="button" 
+                          onClick={() => {
+                            imageInputRef.current?.click();
+                            setShowMediaMenu(false);
+                          }}
+                        >
+                          <MdImage /> Image
+                        </button>
+                        <button 
+                          type="button" 
+                          onClick={() => {
+                            fileInputRef.current?.click();
+                            setShowMediaMenu(false);
+                          }}
+                        >
+                          <MdAttachFile /> File
+                        </button>
+                        <button 
+                          type="button" 
+                          onClick={() => {
+                            startVoiceRecording();
+                            setShowMediaMenu(false);
+                          }}
+                        >
+                          <MdMic /> Voice
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <>
+                    <button 
+                      type="button" 
+                      className="composer-btn" 
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={uploadLoading}
+                      title="Attach file"
+                    >
+                      <MdAttachFile />
+                    </button>
+                    
+                    <button 
+                      type="button" 
+                      className="composer-btn" 
+                      onClick={() => imageInputRef.current?.click()}
+                      disabled={uploadLoading}
+                      title="Send image"
+                    >
+                      <MdImage />
+                    </button>
+                    
+                    <button 
+                      type="button" 
+                      className="composer-btn voice-btn" 
+                      onClick={startVoiceRecording}
+                      disabled={uploadLoading}
+                      title="Record voice message"
+                    >
+                      <MdMic />
+                    </button>
+                  </>
+                )
               ) : (
                 <div className="recording-controls">
                   <div className="recording-indicator">
                     <div className="recording-dot"></div>
                     <span className="recording-time">
-                      {Math.floor(recordingTime / 60)}:{String(recordingTime % 60).padStart(2, '0')}
+                      {formatTime(recordingTime)}
                     </span>
                   </div>
                   <button 
                     type="button" 
-                    className="stop-recording-btn" 
                     onClick={stopVoiceRecording}
                     title="Send voice message"
                   >
@@ -1081,7 +1383,6 @@ const Dashboard = () => {
                   </button>
                   <button 
                     type="button" 
-                    className="cancel-recording-btn" 
                     onClick={cancelVoiceRecording}
                     title="Cancel recording"
                   >
@@ -1123,7 +1424,6 @@ const Dashboard = () => {
               )}
             </button>
 
-            {/* Hidden File Inputs */}
             <input
               ref={fileInputRef}
               type="file"
