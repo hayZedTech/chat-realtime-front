@@ -1223,7 +1223,7 @@ body.dark .message-menu {
   color: white; 
 }
 
-/* Enhanced composer with mobile media menu */
+/* Composer - WhatsApp-like auto-expand textarea */
 .composer {
   display: flex; 
   align-items: flex-end; 
@@ -1276,36 +1276,59 @@ body.dark .message-menu {
   transform: scale(1.05); 
 }
 
+/* WhatsApp-style composer input container */
 .composer-main {
   flex: 1; 
   background: var(--bg-tertiary); 
-  border: 1px solid var(--border);
+  border: none;
   border-radius: 24px; 
-  padding: 10px 16px; 
+  padding: 0;
   transition: var(--transition);
   min-height: 44px;
+  max-height: 120px;
   display: flex;
   align-items: center;
   margin: 0 8px;
+  overflow: hidden;
 }
 
 .composer-main:focus-within { 
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(0, 255, 255, 0.1); 
+  box-shadow: 0 0 0 2px var(--accent);
 }
 
+/* WhatsApp-style auto-expanding textarea */
 .message-input {
   width: 100%; 
   border: none; 
   background: transparent;
   color: var(--text-primary); 
-  font-size: 14px; 
+  font-size: 15px; 
   resize: none;
   outline: none; 
-  min-height: 20px; 
+  min-height: 44px;
   max-height: 120px;
   line-height: 1.5; 
   font-family: inherit;
+  padding: 12px 16px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  word-wrap: break-word;
+  white-space: pre-wrap;
+  scrollbar-width: thin;
+  scrollbar-color: var(--accent) transparent;
+}
+
+.message-input::-webkit-scrollbar {
+  width: 4px;
+}
+
+.message-input::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.message-input::-webkit-scrollbar-thumb {
+  background: var(--accent);
+  border-radius: 2px;
 }
 
 .message-input::placeholder {
@@ -1345,6 +1368,7 @@ body.dark .message-menu {
 .mobile-media-menu { 
   position: relative; 
   display: block;
+  z-index: 10;
 }
 
 .mobile-toggle-btn {
@@ -1359,9 +1383,10 @@ body.dark .message-menu {
   align-items: center; 
   justify-content: center;
   font-size: 20px; 
+  font-weight: 900;
   transition: var(--transition);
   box-shadow: 0 2px 8px rgba(0, 255, 255, 0.3);
-  font-weight: bold;
+  flex-shrink: 0;
 }
 
 .mobile-toggle-btn.active { 
@@ -1665,7 +1690,7 @@ body.dark .file-preview-modal {
   animation: spin 0.8s linear infinite;
 }
 
-/* Enhanced notification system */
+/* Enhanced notification system with process notifications */
 .notification-container {
   position: fixed; 
   top: 80px; 
@@ -1675,6 +1700,7 @@ body.dark .file-preview-modal {
   flex-direction: column; 
   gap: 10px; 
   max-width: 320px;
+  pointer-events: none;
 }
 
 .notification {
@@ -1688,6 +1714,7 @@ body.dark .file-preview-modal {
   position: relative; 
   overflow: hidden;
   color: var(--text-primary);
+  pointer-events: auto;
 }
 
 body.dark .notification {
@@ -1706,6 +1733,14 @@ body.dark .notification {
   border-left: 4px solid var(--info); 
 }
 
+.notification.warning {
+  border-left: 4px solid var(--warning);
+}
+
+.notification.process {
+  border-left: 4px solid var(--accent);
+}
+
 .notification-content { 
   display: flex; 
   align-items: center; 
@@ -1715,6 +1750,10 @@ body.dark .notification {
 .notification-icon { 
   font-size: 20px; 
   flex-shrink: 0; 
+}
+
+.notification-icon.spinning {
+  animation: spin 1s linear infinite;
 }
 
 .notification-text { 
