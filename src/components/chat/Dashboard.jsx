@@ -1308,7 +1308,7 @@ const Dashboard = () => {
                 <MdOutlineReply className="reply-icon" />
                 <div className="reply-details">
                   <span className="reply-to">
-                    Replying to {replyingTo.sender_id === user.id ? 'yourself' : replyingTo.sender_name}
+                    Replying to {replyingTo.sender_id === user.id ? 'yourself' : replyingTo. sender_name}
                   </span>
                   <span className="reply-preview-text">
                     {replyingTo.message_type === 'text' 
