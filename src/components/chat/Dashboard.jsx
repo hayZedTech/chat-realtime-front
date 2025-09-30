@@ -127,18 +127,38 @@ const Dashboard = () => {
   const typingTimeoutRef = useRef();
   const recordingIntervalRef = useRef();
   const messagesRefs = useRef({});
+  const textareaRef = useRef();
 
   if (!user) return <Navigate to="/login" replace />;
 
   useEffect(() => { requestNotificationPermission(); }, []);
 
+  // FIXED: Click outside handler to close menus
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (activeMenu && !event.target.closest('.message-menu-container')) {
+        setActiveMenu(null);
+      }
+      if (showMediaMenu && !event.target.closest('.mobile-media-menu')) {
+        setShowMediaMenu(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [activeMenu, showMediaMenu]);
+
+  // FIXED: Enhanced notification with process type
   const addNotification = (message, type = 'info') => {
     const id = Date.now();
     const notification = { id, message, type };
     setNotifications(prev => [...prev, notification]);
-    setTimeout(() => {
-      setNotifications(prev => prev.filter(n => n.id !== id));
-    }, 5000);
+    
+    if (type !== 'process') {
+      setTimeout(() => {
+        setNotifications(prev => prev.filter(n => n.id !== id));
+      }, 5000);
+    }
   };
 
   const scrollToMessage = (messageId) => {
@@ -148,8 +168,7 @@ const Dashboard = () => {
         behavior: "smooth", 
         block: "center" 
       });
-      // Highlight the message briefly
-      messageElement.style.backgroundColor = 'rgba(0, 168, 132, 0.2)';
+      messageElement.style.backgroundColor = 'rgba(0, 255, 255, 0.2)';
       setTimeout(() => {
         messageElement.style.backgroundColor = '';
       }, 2000);
@@ -220,7 +239,8 @@ const Dashboard = () => {
     socketInstance.on('message-deleted', ({ messageId }) => {
       setMessages(prev => prev.filter(msg => msg.id !== messageId));
       setActionLoading(null);
-      addNotification('Message deleted', 'success');
+      setNotifications(prev => prev.filter(n => n.type !== 'process'));
+      addNotification('Message deleted successfully', 'success');
       playSound('success');
     });
 
@@ -235,7 +255,7 @@ const Dashboard = () => {
       setEditingMessage(null);
       setEditText('');
       setActionLoading(null);
-      addNotification('Message updated', 'success');
+      addNotification('Message edited successfully', 'success');
       playSound('success');
     });
 
@@ -249,12 +269,10 @@ const Dashboard = () => {
       setActionLoading(null);
     });
 
-    // FIXED: Display actual username in typing indicator
     socketInstance.on('user-typing', ({ userId, typing, username }) => {
       if (userId !== user.id) {
         setTypingUsers(prev => {
           const newSet = new Set(prev);
-          // Use actual username or fallback
           const displayName = username || users.find(u => u.id === userId)?.username || `User ${userId}`;
           if (typing) {
             newSet.add(displayName);
@@ -367,10 +385,23 @@ const Dashboard = () => {
     setMsgInput("");
     setReplyingTo(null);
     handleStopTyping();
+    
+    // Reset textarea height
+    if (textareaRef.current) {
+      textareaRef.current.style.height = '44px';
+    }
   };
 
+  // FIXED: WhatsApp-style auto-resize textarea
   const handleTyping = (value) => {
     setMsgInput(value);
+    
+    // Auto-resize textarea
+    if (textareaRef.current) {
+      textareaRef.current.style.height = '44px';
+      const scrollHeight = textareaRef.current.scrollHeight;
+      textareaRef.current.style.height = Math.min(scrollHeight, 120) + 'px';
+    }
     
     if (!isTyping && value.trim()) {
       setIsTyping(true);
@@ -397,6 +428,18 @@ const Dashboard = () => {
         chatType: selectedChat.type,
         recipientId: selectedChat.data?.id
       });
+    }
+  };
+
+  // FIXED: Scroll to input on mobile
+  const handleInputFocus = () => {
+    if (window.innerWidth <= 768) {
+      setTimeout(() => {
+        const composer = document.querySelector('.composer');
+        if (composer) {
+          composer.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+      }, 300);
     }
   };
 
@@ -443,8 +486,10 @@ const Dashboard = () => {
     }
   };
 
+  // FIXED: Show process notification
   const handleDelete = async (messageId) => {
     setActionLoading(`delete-${messageId}`);
+    addNotification('Deleting message...', 'process');
     
     if (socket && socket.connected) {
       socket.emit('delete-message', { messageId });
@@ -650,23 +695,19 @@ const Dashboard = () => {
     }
   };
 
-  // ENHANCED: Voice playback with proper pause/resume and time tracking
   const toggleVoicePlayback = (message) => {
     if (!message.media_url) return;
     
-    // If this voice is already playing, pause it
     if (playingVoice === message.id && currentAudio) {
       if (!currentAudio.paused) {
         currentAudio.pause();
         return;
       } else {
-        // Resume from current position
         currentAudio.play();
         return;
       }
     }
     
-    // Stop any current audio
     if (currentAudio) {
       currentAudio.pause();
       currentAudio.currentTime = 0;
@@ -675,7 +716,6 @@ const Dashboard = () => {
       setAudioCurrentTime(0);
     }
     
-    // Start new audio
     const audio = new Audio(`${URL}${message.media_url}`);
     setCurrentAudio(audio);
     setPlayingVoice(message.id);
@@ -741,7 +781,7 @@ const Dashboard = () => {
     }
   };
 
-  // ENHANCED: Message status with proper WhatsApp-like hierarchy
+  // FIXED: Proper double tick status
   const renderMessageStatus = (message) => {
     if (message.sender_id !== user.id) return null;
     
@@ -757,18 +797,17 @@ const Dashboard = () => {
       case 'sent':
         return <MdCheck className="status-sent" />;
       case 'delivered':
-        return <MdDone className="status-delivered" />;
+        return <MdDoneAll className="status-delivered" />;
       case 'seen':
         return <MdDoneAll className="status-seen" />;
       default:
-        return <MdDone className="status-delivered" />;
+        return <MdDoneAll className="status-delivered" />;
     }
   };
 
-  // FIXED: Determine if name and message should be inline
   const shouldInlineMessage = (messageText, messageType) => {
     if (messageType !== 'text') return false;
-    return messageText.length <= 30; // Adjust threshold as needed
+    return messageText.length <= 30;
   };
 
   const groupedMessages = messages.reduce((groups, message) => {
@@ -795,10 +834,11 @@ const Dashboard = () => {
           {notifications.map(notification => (
             <div key={notification.id} className={`notification ${notification.type}`}>
               <div className="notification-content">
-                <div className="notification-icon">
+                <div className={`notification-icon ${notification.type === 'process' ? 'spinning' : ''}`}>
                   {notification.type === 'success' && <MdCheck />}
                   {notification.type === 'error' && <MdClose />}
                   {notification.type === 'info' && <MdNotifications />}
+                  {notification.type === 'process' && <div className="loading-spinner-small"></div>}
                 </div>
                 <div className="notification-text">{notification.message}</div>
                 <button 
@@ -932,7 +972,7 @@ const Dashboard = () => {
                 if (window.innerWidth <= 768) toggleSidebar();
               }}
             >
-              <div className="avatar blue-lime-gradient">🌍</div>
+              <div className="avatar cyan-purple-gradient">🌍</div>
               <div className="chat-info">
                 <div className="name">
                   General Chat
@@ -958,7 +998,7 @@ const Dashboard = () => {
                     if (window.innerWidth <= 768) toggleSidebar();
                   }}
                 >
-                  <div className="avatar blue-lime-gradient">
+                  <div className="avatar cyan-purple-gradient">
                     {getInitials(u.username)}
                   </div>
                   <div className="chat-info">
@@ -985,7 +1025,7 @@ const Dashboard = () => {
             <button className="go-back-btn" onClick={toggleSidebar}>
               <MdArrowBackIos />
             </button>
-            <div className="avatar blue-lime-gradient">
+            <div className="avatar cyan-purple-gradient">
               {selectedChat.type === 'general' ? '🌍' : getInitials(selectedChat.data?.username)}
             </div>
             <div className="chat-title">
@@ -1083,7 +1123,6 @@ const Dashboard = () => {
                           ) : (
                             <>
                               <div className="message-content">
-                                {/* FIXED: Clickable reply preview that scrolls to original message */}
                                 {replyMessage && (
                                   <div 
                                     className="reply-preview"
@@ -1101,7 +1140,6 @@ const Dashboard = () => {
                                   </div>
                                 )}
 
-                                {/* FIXED: Inline name and message for short texts, separate lines for long texts */}
                                 <div className={`message-header ${isInline ? 'inline' : 'multiline'}`}>
                                   <span className="sender-name">{isOwn ? 'You' : m.sender_name}{isInline ? ':' : ''}</span>
                                   
@@ -1128,7 +1166,6 @@ const Dashboard = () => {
                                           ))}
                                         </div>
                                       </div>
-                                      {/* FIXED: Show actual duration and current time */}
                                       <span className="voice-time">
                                         {playingVoice === m.id ? 
                                           `${formatTime(audioCurrentTime)}/${formatTime(m.voice_duration || audioDuration)}` :
@@ -1288,117 +1325,92 @@ const Dashboard = () => {
           )}
 
           <form className="composer" onSubmit={handleSendMessage}>
-            <div className="composer-actions">
-              {!isRecording ? (
-                window.innerWidth <= 768 ? (
-                  <div className="mobile-media-menu">
+            {!isRecording && (
+              <div className="mobile-media-menu">
+                <button 
+                  type="button" 
+                  className={`mobile-toggle-btn ${showMediaMenu ? 'active' : ''}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowMediaMenu(!showMediaMenu);
+                  }}
+                  disabled={uploadLoading}
+                  aria-label="Media options"
+                >
+                  <MdAdd />
+                </button>
+                
+                {showMediaMenu && (
+                  <div className="media-options">
                     <button 
                       type="button" 
-                      className={`mobile-toggle-btn ${showMediaMenu ? 'active' : ''}`}
-                      onClick={() => setShowMediaMenu(!showMediaMenu)}
-                      disabled={uploadLoading}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        imageInputRef.current?.click();
+                        setShowMediaMenu(false);
+                      }}
                     >
-                      <MdAdd />
+                      <MdImage /> Image
                     </button>
-                    
-                    {showMediaMenu && (
-                      <div className="media-options">
-                        <button 
-                          type="button" 
-                          onClick={() => {
-                            imageInputRef.current?.click();
-                            setShowMediaMenu(false);
-                          }}
-                        >
-                          <MdImage /> Image
-                        </button>
-                        <button 
-                          type="button" 
-                          onClick={() => {
-                            fileInputRef.current?.click();
-                            setShowMediaMenu(false);
-                          }}
-                        >
-                          <MdAttachFile /> File
-                        </button>
-                        <button 
-                          type="button" 
-                          onClick={() => {
-                            startVoiceRecording();
-                            setShowMediaMenu(false);
-                          }}
-                        >
-                          <MdMic /> Voice
-                        </button>
-                      </div>
-                    )}
+                    <button 
+                      type="button" 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        fileInputRef.current?.click();
+                        setShowMediaMenu(false);
+                      }}
+                    >
+                      <MdAttachFile /> File
+                    </button>
+                    <button 
+                      type="button" 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        startVoiceRecording();
+                        setShowMediaMenu(false);
+                      }}
+                    >
+                      <MdMic /> Voice
+                    </button>
                   </div>
-                ) : (
-                  <>
-                    <button 
-                      type="button" 
-                      className="composer-btn" 
-                      onClick={() => fileInputRef.current?.click()}
-                      disabled={uploadLoading}
-                      title="Attach file"
-                    >
-                      <MdAttachFile />
-                    </button>
-                    
-                    <button 
-                      type="button" 
-                      className="composer-btn" 
-                      onClick={() => imageInputRef.current?.click()}
-                      disabled={uploadLoading}
-                      title="Send image"
-                    >
-                      <MdImage />
-                    </button>
-                    
-                    <button 
-                      type="button" 
-                      className="composer-btn voice-btn" 
-                      onClick={startVoiceRecording}
-                      disabled={uploadLoading}
-                      title="Record voice message"
-                    >
-                      <MdMic />
-                    </button>
-                  </>
-                )
-              ) : (
-                <div className="recording-controls">
-                  <div className="recording-indicator">
-                    <div className="recording-dot"></div>
-                    <span className="recording-time">
-                      {formatTime(recordingTime)}
-                    </span>
-                  </div>
-                  <button 
-                    type="button" 
-                    onClick={stopVoiceRecording}
-                    title="Send voice message"
-                  >
-                    <MdSend />
-                  </button>
-                  <button 
-                    type="button" 
-                    onClick={cancelVoiceRecording}
-                    title="Cancel recording"
-                  >
-                    <MdClose />
-                  </button>
+                )}
+              </div>
+            )}
+
+            {isRecording && (
+              <div className="recording-controls">
+                <div className="recording-indicator">
+                  <div className="recording-dot"></div>
+                  <span className="recording-time">
+                    {formatTime(recordingTime)}
+                  </span>
                 </div>
-              )}
-            </div>
+                <button 
+                  type="button" 
+                  onClick={stopVoiceRecording}
+                  title="Send voice message"
+                >
+                  <MdSend />
+                </button>
+                <button 
+                  type="button" 
+                  onClick={cancelVoiceRecording}
+                  title="Cancel recording"
+                >
+                  <MdClose />
+                </button>
+              </div>
+            )}
 
             <div className="composer-main">
               <textarea
+                ref={textareaRef}
                 className="message-input"
                 value={msgInput}
                 onChange={(e) => handleTyping(e.target.value)}
                 onKeyDown={handleKeyDown}
                 onBlur={handleStopTyping}
+                onFocus={handleInputFocus}
                 placeholder={
                   replyingTo 
                     ? `Reply to ${replyingTo.sender_name}...`
@@ -1408,6 +1420,7 @@ const Dashboard = () => {
                 }
                 rows={1}
                 disabled={isRecording || uploadLoading}
+                style={{ height: '44px', resize: 'none' }}
               />
             </div>
             
