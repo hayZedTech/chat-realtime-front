@@ -27,12 +27,12 @@
   "main": "eslint.config.js",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/eff-1/frontend.git"
+    "url": "git+https://github.com/hayZedTech/chat-realtime-front.git"
   },
   "author": "",
   "license": "ISC",
   "bugs": {
-    "url": "https://github.com/eff-1/frontend/issues"
+    "url": "https://github.com/hayZedTech/chat-realtime-front/issues"
   },
-  "homepage": "https://github.com/eff-1/frontend#readme"
+  "homepage": "https://github.com/hayZedTech/chat-realtime-front#readme"
 }
