@@ -23,8 +23,8 @@
 
 /* Auth Card */
 .auth-card {
-  background: rgba(0, 0, 0, 0.65);
-  backdrop-filter: blur(12px);
+  /* background: rgba(0, 0, 0, 0.65); */
+  backdrop-filter: blur(1px);
   border-radius: 16px;
   padding: 30px;
   width: 100%;
@@ -95,7 +95,7 @@
   font-size: 2rem;
   text-align: center;
   margin-bottom: 6px;
-  background: linear-gradient(90deg, #0ff, #a0f);
+  background: linear-gradient(90deg, #0ff, lime);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
 }
@@ -123,23 +123,27 @@
   padding: 12px 14px;
   border: none;
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.1);
-  color: #fff;
+  /* background: rgba(255, 255, 255, 0.1); */
+  color: #000;
   outline: none;
   font-size: 0.95rem;
   transition: background 0.3s;
 }
 
 .auth-form input:focus {
-  background: rgba(255, 255, 255, 0.2);
-  box-shadow: 0 0 8px #0ff;
+  /* background: rgba(255, 255, 255, 0.2); */
+  box-shadow: 0 0 8px lime;
+}
+
+::placeholder{
+  color: rgb(34, 60, 35);
 }
 
 /* ===== Buttons ===== */
 .auth-button {
   width: 100%;
   padding: 14px;
-  background: linear-gradient(90deg, #0ff, #a0f);
+  background: linear-gradient(90deg, rgb(8, 161, 161), rgb(4, 160, 4));
   border: none;
   border-radius: 10px;
  color: aliceblue; 
@@ -185,4 +189,53 @@
   border-radius: 8px;
   margin-bottom: 15px;
   text-align: center;
+}
+
+
+/* Login/Signup Spinner */
+/* spinner */
+/* 🔹 Full screen spinner overlay */
+.screen-spinner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(15, 15, 15, 0.85); /* dim background */
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  z-index: 99999; /* stays above everything */
+  animation: fadeIn 0.3s ease-in-out;
+}
+
+/* 🔹 Rolling loader */
+.loader {
+  width: 80px;
+  height: 80px;
+  border: 8px solid #f3f3f3;
+  border-top: 8px solid lime; /* brand color */
+  border-radius: 50%;
+  animation: roll 1s linear infinite;
+}
+
+/* 🔹 Optional text under spinner */
+.loader-text {
+  margin-top: 15px;
+  color: #fff;
+  font-size: 18px;
+  font-weight: 500;
+  letter-spacing: 1px;
+}
+
+/* 🔹 Animations */
+@keyframes roll {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }

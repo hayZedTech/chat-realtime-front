@@ -119,6 +119,9 @@ const Dashboard = () => {
   const [showMediaMenu, setShowMediaMenu] = useState(false);
   const [notifications, setNotifications] = useState([]);
 
+  // ADDED: store per-message reply inputs
+  const [replyInputs, setReplyInputs] = useState({});
+
   const user = JSON.parse(localStorage.getItem("user") || "null");
   const navigate = useNavigate();
   const messagesEndRef = useRef();
@@ -128,10 +131,29 @@ const Dashboard = () => {
   const recordingIntervalRef = useRef();
   const messagesRefs = useRef({});
   const textareaRef = useRef();
+  // NEW: controls whether the next messages update should auto-scroll to bottom.
+  // Set to true when you want to force-scroll (e.g., user sent a message / opened chat).
+  // Leave false for edits, deletes, reactions so the view won't jump.
+  const shouldScrollRef = useRef(false);
 
   if (!user) return <Navigate to="/login" replace />;
 
   useEffect(() => { requestNotificationPermission(); }, []);
+
+  // Utility: safely parse reactions (string -> array) and ensure array
+  const normalizeReactions = (reactions) => {
+    if (!reactions) return [];
+    if (Array.isArray(reactions)) return reactions;
+    try {
+      if (typeof reactions === 'string') {
+        const parsed = JSON.parse(reactions);
+        return Array.isArray(parsed) ? parsed : [];
+      }
+    } catch (err) {
+      return [];
+    }
+    return [];
+  };
 
   // FIXED: Click outside handler to close menus
   useEffect(() => {
@@ -205,9 +227,13 @@ const Dashboard = () => {
 
       if (isForCurrentChat) {
         setMessages(prev => {
-          const exists = prev.some(m => m.id === message.id);
+          const exists = prev.some(m => String(m.id) === String(message.id));
           if (exists) return prev;
-          return [...prev, { ...message, status: 'delivered' }];
+          return [...prev, { 
+            ...message, 
+            status: 'delivered',
+            reactions: normalizeReactions(message.reactions)
+          }];
         });
       }
       
@@ -231,13 +257,13 @@ const Dashboard = () => {
 
     socketInstance.on('message-delivered', ({ tempId, messageId, status }) => {
       setMessages(prev => prev.map(msg => 
-        msg.id === tempId ? { ...msg, id: messageId, status: 'delivered' } : msg
+        String(msg.id) === String(tempId) ? { ...msg, id: messageId, status: 'delivered' } : msg
       ));
       setActionLoading(null);
     });
 
     socketInstance.on('message-deleted', ({ messageId }) => {
-      setMessages(prev => prev.filter(msg => msg.id !== messageId));
+      setMessages(prev => prev.filter(msg => String(msg.id) !== String(messageId)));
       setActionLoading(null);
       setNotifications(prev => prev.filter(n => n.type !== 'process'));
       addNotification('Message deleted successfully', 'success');
@@ -246,7 +272,7 @@ const Dashboard = () => {
 
     socketInstance.on('message-edited', (updatedMessage) => {
       setMessages(prev => prev.map(msg =>
-        msg.id === updatedMessage.id ? { 
+        String(msg.id) === String(updatedMessage.id) ? { 
           ...msg, 
           message: updatedMessage.message, 
           edited_at: updatedMessage.edited_at 
@@ -292,9 +318,11 @@ const Dashboard = () => {
       });
     });
 
+    // When server sends reaction update, normalize and replace authoritative state
     socketInstance.on('reaction-added', ({ messageId, reactions }) => {
+      const normalized = normalizeReactions(reactions);
       setMessages(prev => prev.map(msg =>
-        msg.id === messageId ? { ...msg, reactions } : msg
+        String(msg.id) === String(messageId) ? { ...msg, reactions: normalized } : msg
       ));
     });
 
@@ -315,7 +343,14 @@ const Dashboard = () => {
     const chatKey = selectedChat.type === 'general' ? 'general' : `private-${selectedChat.data?.id}`;
     setUnreadCounts(prev => ({ ...prev, [chatKey]: 0 }));
   }, [selectedChat]);
-  useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
+
+  // UPDATED: only auto-scroll when shouldScrollRef.current is true.
+  useEffect(() => { 
+    if (shouldScrollRef.current) {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+      shouldScrollRef.current = false;
+    }
+  }, [messages]);
 
   const fetchUsers = async () => {
     try {
@@ -337,7 +372,14 @@ const Dashboard = () => {
       }
       
       const res = await axios.get(endpoint);
-      setMessages(res.data || []);
+      // normalize reactions for each message so frontend always sees an array
+      const normalized = (res.data || []).map(m => ({
+        ...m,
+        reactions: normalizeReactions(m.reactions)
+      }));
+      setMessages(normalized);
+      // NEW: when loading messages (initial load or switching chats), scroll to bottom
+      shouldScrollRef.current = true;
     } catch (err) {
       console.error('Fetch messages error:', err);
       setMessages([]);
@@ -363,6 +405,9 @@ const Dashboard = () => {
       reply_to: replyingTo?.id || null,
       recipient_id: selectedChat.type === 'private' ? selectedChat.data?.id : null
     };
+
+    // NEW: user is sending — next messages update should scroll to bottom
+    shouldScrollRef.current = true;
 
     setMessages(prev => [...prev, tempMessage]);
     playSound('send');
@@ -390,6 +435,56 @@ const Dashboard = () => {
     if (textareaRef.current) {
       textareaRef.current.style.height = '44px';
     }
+  };
+
+  // ADDED: send reply for a specific message (optimistic UI)
+  const handleSendReply = async (e, message) => {
+    e.preventDefault();
+    const text = (replyInputs?.[message.id] || "").trim();
+    if (!text) return;
+
+    const tempId = `temp-${Date.now()}`;
+    const tempMessage = {
+      id: tempId,
+      message: text,
+      sender_id: user.id,
+      sender_name: user.username,
+      created_at: new Date().toISOString(),
+      message_type: 'text',
+      status: 'sending',
+      reply_to: message.id,
+      recipient_id: selectedChat.type === 'private' ? selectedChat.data?.id : null
+    };
+
+    // NEW: user replied — scroll to bottom on next messages update
+    shouldScrollRef.current = true;
+
+    // optimistic UI
+    setMessages(prev => [...prev, tempMessage]);
+    playSound('send');
+
+    if (socket && socket.connected) {
+      socket.emit('send-message', {
+        tempId,
+        sender_id: user.id,
+        message: text,
+        chatType: selectedChat.type,
+        recipient_id: selectedChat.data?.id,
+        replyTo: message.id,
+        message_type: 'text'
+      });
+    } else {
+      addNotification('Not connected to server', 'error');
+      setMessages(prev => prev.filter(m => m.id !== tempId));
+    }
+
+    // clear input for that message and hide inline reply UI
+    setReplyInputs(prev => {
+      const copy = { ...prev };
+      delete copy[message.id];
+      return copy;
+    });
+    setReplyingTo(null);
   };
 
   // FIXED: WhatsApp-style auto-resize textarea
@@ -501,11 +596,46 @@ const Dashboard = () => {
     setShowDeleteModal(null);
   };
 
+  // CHANGED: include chat context so server can validate add-reaction on other users' messages
   const handleReaction = (messageId, emoji) => {
-    if (socket && socket.connected) {
-      socket.emit('add-reaction', { messageId, emoji, userId: user.id });
+    if (!socket || !socket.connected) {
+      addNotification('Not connected to server', 'error');
+      return;
     }
+
+    // OPTIMISTIC UI: toggle reaction locally immediately for snappy UX
+    setMessages(prev => prev.map(msg => {
+      if (String(msg.id) !== String(messageId)) return msg;
+
+      // ensure reactions is an array locally
+      const currentReactions = Array.isArray(msg.reactions) ? [...msg.reactions] : normalizeReactions(msg.reactions);
+
+      const existing = currentReactions.find(r => r.user_id === user.id && r.emoji === emoji);
+      let newReactions;
+      if (existing) {
+        newReactions = currentReactions.filter(r => !(r.user_id === user.id && r.emoji === emoji));
+      } else {
+        newReactions = [...currentReactions, { user_id: user.id, emoji }];
+      }
+      return { ...msg, reactions: newReactions };
+    }));
+
+    // send to server; if server supports ACK, revert on error by refetching the single chat messages
+    socket.emit('add-reaction', {
+      messageId,
+      emoji,
+      userId: user.id,
+      chatType: selectedChat.type,
+      recipientId: selectedChat.data?.id || null
+    }, (ack) => {
+      if (ack && ack.error) {
+        addNotification('Failed to add reaction: ' + ack.error, 'error');
+        // revert by refetching current chat messages (simple and safe)
+        fetchMessages();
+      }
+    });
   };
+ 
 
   const handleFileUpload = async (file, type) => {
     if (!file) return;
@@ -556,6 +686,9 @@ const Dashboard = () => {
       media_url: filePreview.type === 'image' ? filePreview.preview : null
     };
     
+    // NEW: user sending file — scroll to bottom on next messages update
+    shouldScrollRef.current = true;
+
     setMessages(prev => [...prev, tempMessage]);
     setFilePreview(null);
     
@@ -630,6 +763,9 @@ const Dashboard = () => {
           recipient_id: selectedChat.type === 'private' ? selectedChat.data?.id : null
         };
         
+        // NEW: sending voice — scroll to bottom next update
+        shouldScrollRef.current = true;
+
         setMessages(prev => [...prev, tempMessage]);
         
         const formData = new FormData();
@@ -948,7 +1084,7 @@ const Dashboard = () => {
           <button className="menu-btn" onClick={toggleSidebar}>
             <MdMenu />
           </button>
-          <div className="logo">ChatApp</div>
+          <div className="logo">Welcome</div>
           <span className="username">@{user.username}</span>
         </div>
         <div className="actions">
@@ -1073,7 +1209,7 @@ const Dashboard = () => {
                   
                   {dateMessages.map(m => {
                     const isOwn = m.sender_id === user.id;
-                    const replyMessage = m.reply_to ? messages.find(msg => msg.id === m.reply_to) : null;
+                    const replyMessage = m.reply_to ? messages.find(msg => String(msg.id) === String(m.reply_to)) : null;
                     const isInline = shouldInlineMessage(m.message, m.message_type);
                     
                     return (
@@ -1241,9 +1377,11 @@ const Dashboard = () => {
                                       
                                       {activeMenu === m.id && (
                                         <div className="message-menu">
-                                          <button onClick={() => handleMenuAction('reply', m)}>
-                                            <MdOutlineReply /> Reply
-                                          </button>
+                                          {!isOwn && (
+                                            <button onClick={() => handleMenuAction('reply', m)}>
+                                              <MdOutlineReply /> Reply
+                                            </button>
+                                          )}
                                           <button onClick={() => handleMenuAction('react', m)}>
                                             <MdFavorite /> React
                                           </button>
@@ -1262,6 +1400,27 @@ const Dashboard = () => {
                                     </div>
                                   </div>
                                 </div>
+
+                                {/* --- Per-message reply form: appears at the bottom of the specific message being replied to --- */}
+                                {replyingTo?.id === m.id && (
+                                  <form className="reply-box" onSubmit={(e) => handleSendReply(e, m)}>
+                                    <input
+                                      type="text"
+                                      className="form-control"
+                                      placeholder={`Reply to ${m.sender_name}...`}
+                                      value={replyInputs?.[m.id] || ""}
+                                      onChange={(e) => setReplyInputs(prev => ({ ...prev, [m.id]: e.target.value }))}
+                                    />
+                                    <button type="submit" className="send mt-2 py-2 alert alert-primary" disabled={!replyInputs?.[m.id]?.trim()}>
+                                      <MdSend />
+                                    </button>
+                                    <button type="button" className="close-pill ms-2 py-2 alert alert-danger" onClick={() => setReplyingTo(null)}>
+                                      <MdClose />
+                                    </button>
+                                  </form>
+                                )}
+                                {/* --- End per-message reply form --- */}
+
                               </div>
 
                               {m.reactions && Array.isArray(m.reactions) && m.reactions.length > 0 && (
@@ -1308,7 +1467,7 @@ const Dashboard = () => {
                 <MdOutlineReply className="reply-icon" />
                 <div className="reply-details">
                   <span className="reply-to">
-                    Replying to {replyingTo.sender_id === user.id ? 'yourself' : replyingTo. sender_name}
+                    Replying to {replyingTo.sender_id === user.id ? 'yourself' : replyingTo. sender_name} :
                   </span>
                   <span className="reply-preview-text">
                     {replyingTo.message_type === 'text' 

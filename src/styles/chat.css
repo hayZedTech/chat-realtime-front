@@ -6,19 +6,19 @@
   --bg-tertiary: #f0f0f0;
   --text-primary: #111b21;
   --text-secondary: #667781;
-  --text-muted: #8696a0;
+  --text-muted: #86a087;
   --border: rgba(0, 0, 0, 0.1);
-  --accent: #00ffff;
-  --accent-hover: #00cccc;
+  --accent: #27c61c;
+  --accent-hover: rgb(64, 220, 111);
   --accent-light: rgba(0, 255, 255, 0.1);
   
   /* Enhanced cyan-purple gradient for own messages */
   --own-message: linear-gradient(
     135deg,
-    #0ff 0%,
-    #00d4ff 30%,
-    #8a2be2 70%,
-    #a0f 100%
+    rgb(34, 207, 43) 0%,
+    #076309 30%,
+    #066679 70%,
+    rgb(7, 49, 163) 100%
   );
 
   --other-message: #ffffff;
@@ -30,17 +30,17 @@
   --glass-shadow: 0 8px 32px rgba(0, 255, 255, 0.1);
   
   /* Enhanced cyan-purple gradient */
-  --cyan-purple: linear-gradient(135deg, #0ff 0%, #00d4ff 25%, #8a2be2 75%, #a0f 100%);
+  --cyan-purple: linear-gradient(135deg, rgb(207, 231, 208) 0%,  #119914 30%, #067942 70%, rgb(7, 49, 163) 100%);
   
   /* Status colors with proper hierarchy */
   --status-sending: #8696a0;
   --status-sent: #667781;
   --status-delivered: #00d4ff;
   --status-seen: #00ffff;
-  --success: #00ffff;
+  --success: #4ef45e;
   --warning: #f59e0b;
   --danger: #e74c3c;
-  --info: #00d4ff;
+  --info: #089625;
   
   /* Shadows */
   --shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
@@ -1192,7 +1192,9 @@ body.dark .message-menu {
 .reply-to { 
   font-size: 13px; 
   font-weight: 700; 
+  /*  */
   color: var(--accent);
+  padding-right: 4px;
   text-transform: capitalize; 
   margin-bottom: 2px;
 }
@@ -2068,6 +2070,8 @@ body.dark .light-icon {
   100% { transform: scale(1); opacity: 1; }
 }
 
+
+
 /* Focus states for accessibility */
 button:focus-visible, input:focus-visible, textarea:focus-visible {
   outline: 2px solid var(--accent); 
@@ -2075,10 +2079,13 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 }
 
 /* Selection styling with cyan tint */
-::selection {
+/* ::selection {
   background: linear-gradient(90deg, var(--accent-light) 0%, rgba(0, 255, 255, 0.2) 100%);
   color: var(--text-primary);
-}
+} */
+
+
+
 
 /* Print styles */
 @media print {
@@ -2546,3 +2553,4 @@ body.dark .context-menu {
   background: var(--accent-hover);
   transform: translateY(-1px);
 }
+

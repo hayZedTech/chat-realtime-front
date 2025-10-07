@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import axios from "axios";
-import '../../styles/components.css';
+import Swal from "sweetalert2";
+import "../../styles/components.css";
 
 const Signup = () => {
   const [formData, setFormData] = useState({
@@ -11,22 +12,23 @@ const Signup = () => {
     confirmPassword: ""
   });
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
 
   const navigate = useNavigate();
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
-    setError("");
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
-    setError("");
 
     if (formData.password !== formData.confirmPassword) {
-      setError("Passwords do not match");
+      Swal.fire({
+        icon: "error",
+        title: "Password Mismatch",
+        text: "Passwords do not match. Please try again."
+      });
       setLoading(false);
       return;
     }
@@ -44,9 +46,21 @@ const Signup = () => {
       localStorage.setItem("user", JSON.stringify(response.data.user));
       localStorage.setItem("token", response.data.token);
 
+      Swal.fire({
+        icon: "success",
+        title: "Account Created",
+        text: "Your account was created successfully!",
+        timer: 2000,
+        showConfirmButton: false
+      });
+
       navigate("/dashboard");
     } catch (err) {
-      setError(err.response?.data?.error || "Signup failed");
+      Swal.fire({
+        icon: "error",
+        title: "Signup Failed",
+        text: err.response?.data?.error || "An unexpected error occurred. Please try again."
+      });
     } finally {
       setLoading(false);
     }
@@ -54,17 +68,21 @@ const Signup = () => {
 
   return (
     <div className="auth-container">
+      {loading && (
+        <div className="screen-spinner">
+          <div className="loader"></div>
+          <p className="loader-text">Signing you in...</p>
+        </div>
+      )}
+
       <video className="bg-video" autoPlay loop muted playsInline>
-        <source src="/assets/chat-bg.mp4" type="video/mp4" />
+        <source src="/assets/chat-bg3.mp4" type="video/mp4" />
       </video>
 
       <div className="auth-card">
         <div className="auth-header">
           <h1>Create Account</h1>
-          <p>Join the conversation</p>
         </div>
-
-        {error && <div className="error-message">{error}</div>}
 
         <form onSubmit={handleSubmit} className="auth-form">
           <div className="form-group">
@@ -77,6 +95,7 @@ const Signup = () => {
               onChange={handleChange}
               required
               placeholder="Choose a username"
+              disabled={loading}
             />
           </div>
 
@@ -90,6 +109,7 @@ const Signup = () => {
               onChange={handleChange}
               required
               placeholder="Enter your email"
+              disabled={loading}
             />
           </div>
 
@@ -103,6 +123,7 @@ const Signup = () => {
               onChange={handleChange}
               required
               placeholder="Create a password"
+              disabled={loading}
             />
           </div>
 
@@ -116,6 +137,7 @@ const Signup = () => {
               onChange={handleChange}
               required
               placeholder="Confirm password"
+              disabled={loading}
             />
           </div>
 
