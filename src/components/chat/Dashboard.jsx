@@ -136,6 +136,14 @@ const Dashboard = () => {
   // Leave false for edits, deletes, reactions so the view won't jump.
   const shouldScrollRef = useRef(false);
 
+  // Suppress noisy connect/disconnect notifications immediately after a refresh
+  // Enables notifications after a short grace period so initial socket churn is ignored
+  const notificationsEnabledRef = useRef(false);
+  useEffect(() => {
+    const t = setTimeout(() => { notificationsEnabledRef.current = true; }, 2000);
+    return () => clearTimeout(t);
+  }, []);
+
   if (!user) return <Navigate to="/login" replace />;
 
   useEffect(() => { requestNotificationPermission(); }, []);
@@ -208,12 +216,18 @@ const Dashboard = () => {
     socketInstance.on('connect', () => {
       setConnectionStatus('connected');
       socketInstance.emit('user-online', user.id);
-      addNotification('Connected to chat', 'success');
+      // avoid showing connect toast right after a page refresh
+      if (notificationsEnabledRef.current) {
+        addNotification('Connected to chat', 'success');
+      }
     });
 
     socketInstance.on('disconnect', () => {
       setConnectionStatus('disconnected');
-      addNotification('Disconnected from chat', 'error');
+      // avoid showing disconnect toast right after a page refresh
+      if (notificationsEnabledRef.current) {
+        addNotification('Disconnected from chat', 'error');
+      }
     });
 
     socketInstance.on('connect_error', () => setConnectionStatus('error'));
@@ -1079,7 +1093,7 @@ const Dashboard = () => {
         </div>
       )}
 
-      <div className="topbar">
+      <div className="topbar" style={{ position: 'sticky', top: 0, zIndex: 1000 }}>
         <div className="brand">
           <button className="menu-btn" onClick={toggleSidebar}>
             <MdMenu />
@@ -1344,42 +1358,7 @@ const Dashboard = () => {
                                   )}
                                 </div>
 
-                                <div>
-                                   {/* --- Per-message reply form: appears at the bottom of the specific message being replied to --- */}
-                                {replyingTo?.id === m.id && (
-                                 <form className="reply-box" onSubmit={(e) => handleSendReply(e, m)}><br />
-                                  <textarea
-                                    className="form-control mt-2"
-                                    rows="3"
-                                    placeholder={`Reply to ${m.sender_name}...`}
-                                    value={replyInputs?.[m.id] || ""}
-                                    onChange={(e) => setReplyInputs(prev => ({ ...prev, [m.id]: e.target.value }))}
-                                  />
-                                  <div className="d-flex justify-content-center mt-2">
-                                    <button
-                                      type="submit"
-                                      className="btn btn-primary me-2 px-3"
-                                      disabled={!replyInputs?.[m.id]?.trim()}
-                                    >
-                                      Send
-                                    </button>
-                                    <button
-                                      type="button"
-                                      className="btn btn-danger px-3"
-                                      onClick={() => setReplyingTo(null)}
-                                    >
-                                      Cancel
-                                    </button>
-                                  </div>
-                                </form>
-
-                                )}
-                                {/* --- End per-message reply form --- */}
-                                </div>
-
                                 <div className="message-footer">
-
-                                  
                                   <div className="message-time-info">
                                     <span className="message-time">
                                       {new Date(m.created_at).toLocaleTimeString('en-US', {
@@ -1432,14 +1411,32 @@ const Dashboard = () => {
                                           )}
                                         </div>
                                       )}
-
-
-                                      
                                     </div>
                                   </div>
                                 </div>
 
-                               
+                                {/* --- Per-message reply form: appears at the bottom of the specific message being replied to --- */}
+                                {replyingTo?.id === m.id && (
+                                  <form className="reply-box" onSubmit={(e) => handleSendReply(e, m)}>
+  <textarea
+    className="form-control reply-textarea"
+    placeholder={`Reply to ${m.sender_name}...`}
+    value={replyInputs?.[m.id] || ""}
+    onChange={(e) => setReplyInputs(prev => ({ ...prev, [m.id]: e.target.value }))}
+    rows={3}
+    style={{ width: '100%', padding: '8px', borderRadius: '8px', border: '1px solid #ddd' }}
+  />
+  <div className="reply-actions" style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '8px' }}>
+    <button type="submit" className="btn btn-primary" disabled={!replyInputs?.[m.id]?.trim()}>
+      Send
+    </button>
+    <button type="button" className="btn btn-outline-danger" onClick={() => setReplyingTo(null)}>
+      Cancel
+    </button>
+  </div>
+</form>
+                                )}
+                                {/* --- End per-message reply form --- */}
 
                               </div>
 

@@ -635,7 +635,7 @@ const Dashboard = () => {
       }
     });
   };
- 
+  
 
   const handleFileUpload = async (file, type) => {
     if (!file) return;
@@ -1344,7 +1344,42 @@ const Dashboard = () => {
                                   )}
                                 </div>
 
+                                <div>
+                                   {/* --- Per-message reply form: appears at the bottom of the specific message being replied to --- */}
+                                {replyingTo?.id === m.id && (
+                                 <form className="reply-box" onSubmit={(e) => handleSendReply(e, m)}><br />
+                                  <textarea
+                                    className="form-control mt-2"
+                                    rows="3"
+                                    placeholder={`Reply to ${m.sender_name}...`}
+                                    value={replyInputs?.[m.id] || ""}
+                                    onChange={(e) => setReplyInputs(prev => ({ ...prev, [m.id]: e.target.value }))}
+                                  />
+                                  <div className="d-flex justify-content-center mt-2">
+                                    <button
+                                      type="submit"
+                                      className="btn btn-primary me-2 px-3"
+                                      disabled={!replyInputs?.[m.id]?.trim()}
+                                    >
+                                      Send
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="btn btn-danger px-3"
+                                      onClick={() => setReplyingTo(null)}
+                                    >
+                                      Cancel
+                                    </button>
+                                  </div>
+                                </form>
+
+                                )}
+                                {/* --- End per-message reply form --- */}
+                                </div>
+
                                 <div className="message-footer">
+
+                                  
                                   <div className="message-time-info">
                                     <span className="message-time">
                                       {new Date(m.created_at).toLocaleTimeString('en-US', {
@@ -1397,29 +1432,14 @@ const Dashboard = () => {
                                           )}
                                         </div>
                                       )}
+
+
+                                      
                                     </div>
                                   </div>
                                 </div>
 
-                                {/* --- Per-message reply form: appears at the bottom of the specific message being replied to --- */}
-                                {replyingTo?.id === m.id && (
-                                  <form className="reply-box" onSubmit={(e) => handleSendReply(e, m)}>
-                                    <input
-                                      type="text"
-                                      className="form-control"
-                                      placeholder={`Reply to ${m.sender_name}...`}
-                                      value={replyInputs?.[m.id] || ""}
-                                      onChange={(e) => setReplyInputs(prev => ({ ...prev, [m.id]: e.target.value }))}
-                                    />
-                                    <button type="submit" className="send mt-2 py-2 alert alert-primary" disabled={!replyInputs?.[m.id]?.trim()}>
-                                      <MdSend />
-                                    </button>
-                                    <button type="button" className="close-pill ms-2 py-2 alert alert-danger" onClick={() => setReplyingTo(null)}>
-                                      <MdClose />
-                                    </button>
-                                  </form>
-                                )}
-                                {/* --- End per-message reply form --- */}
+                               
 
                               </div>
 
@@ -1460,28 +1480,6 @@ const Dashboard = () => {
             )}
             <div ref={messagesEndRef} />
           </div>
-
-          {replyingTo && (
-            <div className="reply-bar">
-              <div className="reply-info">
-                <MdOutlineReply className="reply-icon" />
-                <div className="reply-details">
-                  <span className="reply-to">
-                    Replying to {replyingTo.sender_id === user.id ? 'yourself' : replyingTo. sender_name} :
-                  </span>
-                  <span className="reply-preview-text">
-                    {replyingTo.message_type === 'text' 
-                      ? (replyingTo.message.length > 60 ? replyingTo.message.slice(0, 60) + '...' : replyingTo.message)
-                      : `${replyingTo.message_type} message`
-                    }
-                  </span>
-                </div>
-              </div>
-              <button onClick={() => setReplyingTo(null)} className="reply-cancel-btn">
-                <MdClose />
-              </button>
-            </div>
-          )}
 
           <form className="composer" onSubmit={handleSendMessage}>
             {!isRecording && (
