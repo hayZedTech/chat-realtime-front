@@ -207,6 +207,22 @@ body {
   gap: 6px;
 }
 
+.icon-btn-logout {
+  background: red; 
+  border: 1px solid var(--border);
+  border-radius: 8px; 
+  padding: 8px 12px; 
+  cursor: pointer;
+  color: white; 
+  font-size: 14px; 
+  font-weight: 500;
+  transition: var(--transition);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+
 .icon-btn:hover { 
   background: var(--accent-light);
   color: var(--accent);

@@ -218,7 +218,7 @@ const Dashboard = () => {
       socketInstance.emit('user-online', user.id);
       // avoid showing connect toast right after a page refresh
       if (notificationsEnabledRef.current) {
-        addNotification('Connected to chat', 'success');
+        console.log('Connected to chat', 'success');
       }
     });
 
@@ -226,7 +226,7 @@ const Dashboard = () => {
       setConnectionStatus('disconnected');
       // avoid showing disconnect toast right after a page refresh
       if (notificationsEnabledRef.current) {
-        addNotification('Disconnected from chat', 'error');
+        console.log('Disconnected from chat', 'error');
       }
     });
 
@@ -1106,7 +1106,7 @@ const Dashboard = () => {
             <MdOutlineModeNight className="dark-icon" />
             <MdOutlineWbSunny className="light-icon" />
           </button>
-          <button className="icon-btn logout-btn" onClick={handleLogout}>
+          <button className="icon-btn-logout logout-btn" onClick={handleLogout}>
             Logout
           </button>
         </div>
