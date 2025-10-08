@@ -5,14 +5,15 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 5173,
-    host: true
+    host: true,
   },
   build: {
     outDir: 'dist',
-    sourcemap: false
+    sourcemap: true,
   },
   define: {
+    // ✅ This ensures Axios fetch adapter works correctly in Vite
     global: 'globalThis',
-    'process.env': {}, // 👈 this line is important
-  }
+    'process.env': {},  // ✅ Prevents process.env undefined errors
+  },
 })
