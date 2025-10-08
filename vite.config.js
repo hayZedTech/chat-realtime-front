@@ -1,5 +1,5 @@
-import { defineConfig } from 'vite';
-import react from '@vitejs/plugin-react';
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   plugins: [react()],
@@ -13,9 +13,6 @@ export default defineConfig({
   },
   define: {
     global: 'globalThis',
-    'process.env': {}
-  },
-  optimizeDeps: {
-    include: ['socket.io-client', 'axios']
+    'process.env': {}, // 👈 this line is important
   }
-});
+})
