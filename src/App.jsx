@@ -3,6 +3,8 @@ import { useEffect } from 'react';
 import Dashboard from './components/chat/Dashboard';
 import Login from './components/auth/Login';
 import Signup from './components/auth/Signup';
+import 'bootstrap/dist/css/bootstrap.min.css';
+
 import './styles/chat.css'; // Make sure this file exists with all the CSS
 
 function App() {
