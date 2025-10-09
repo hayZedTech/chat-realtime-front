@@ -540,7 +540,7 @@ body.show-sidebar .sidebar {
 
 /* Message wrapper with proper alignment */
 .message-wrapper {
-  margin-bottom: 6px; 
+  margin-bottom: 16px; 
   display: flex; 
   flex-direction: column;
   animation: messageSlideIn 0.4s cubic-bezier(0.4, 0, 0.2, 1);
@@ -2205,7 +2205,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
-  margin-top: 6px;
+  margin-top: 0px;
   padding-top: 4px;
 }
 
